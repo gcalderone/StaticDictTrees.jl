@@ -72,7 +72,7 @@ Return the number of remaining key segments required to access a leaf value in t
 key_length(d::StaticDictTree{N, K, V}) where {N, K, V} = N
 
 getindex(d::StaticDictTree{N, K, V}, key::NTuple{N, K}) where {N, K, V} = d.values[d.lookup[key]]
-getindex(d::StaticDictTree{N, K, V}, key::K) where {N, K, V} = d[(key,)]
+getindex(d::StaticDictTree{1, K, V}, key::K) where {K, V} = d[(key,)]
 
 function setindex!(d::StaticDictTree{N, K, V}, value, key::NTuple{N, K}) where {N, K, V}
     if haskey(d.lookup, key)
@@ -94,8 +94,7 @@ function setindex!(d::StaticDictTree{N, K, V}, value, key::NTuple{N, K}) where {
     end
     return value
 end
-
-setindex!(d::StaticDictTree{N, K, V}, value, key::K) where {N, K, V} = setindex!(d, value, (key,))
+setindex!(d::StaticDictTree{1, K, V}, value, key::K) where {K, V} = setindex!(d, value, (key,))
 
 function iterate(d::StaticDictTree, state=iterate(d.lookup))
     (state === nothing)  &&  (return nothing)
@@ -153,7 +152,7 @@ function delete!(d::StaticDictTree{N, K, V}, key::NTuple{N, K}) where {N, K, V}
     return d
 end
 
-delete!(d::StaticDictTree{N, K, V}, key::K) where {N, K, V} = delete!(d, (key,))
+delete!(d::StaticDictTree{1, K, V}, key::K) where {K, V} = delete!(d, (key,))
 
 # ------------------------------------------------------------------------------
 """
@@ -193,10 +192,10 @@ end
 key_length(d::StaticDictBranch{N, M, K, V}) where {N, M, K, V} = M
 
 getindex(v::StaticDictBranch{N, M, K, V}, key::NTuple{M, K}) where {N, M, K, V} = v.parent[(v.prefix..., key...)]
-getindex(v::StaticDictBranch{N, M, K, V}, key::K) where {N, M, K, V} = v[(key,)]
+getindex(v::StaticDictBranch{N, 1, K, V}, key::K) where {N, K, V} = v[(key,)]
 
 setindex!(v::StaticDictBranch{N, M, K, V}, value, key::NTuple{M, K}) where {N, M, K, V} = v.parent[(v.prefix..., key...)] = value
-setindex!(v::StaticDictBranch{N, M, K, V}, value, key::K) where {N, M, K, V} = setindex!(v, value, (key,))
+setindex!(v::StaticDictBranch{N, 1, K, V}, value, key::K) where {N, K, V} = setindex!(v, value, (key,))
 
 function iterate(v::StaticDictBranch)
     kk = keys(v)
@@ -215,7 +214,7 @@ function delete!(v::StaticDictBranch{N, M, K, V}, key::NTuple{M, K}) where {N, M
     delete!(v.parent, (v.prefix..., key...))
     return v
 end
-function delete!(v::StaticDictBranch{N, M, K, V}, key::K) where {N, M, K, V}
+function delete!(v::StaticDictBranch{N, 1, K, V}, key::K) where {N, K, V}
     delete!(v, (key,))
     return v
 end
