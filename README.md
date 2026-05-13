@@ -1,119 +1,125 @@
 # StaticDictTrees.jl
 
-**StaticDictTrees.jl** provides a high-performance, strictly typed, and flattened hierarchical dictionary for Julia. It is designed for multi-level hierarchical data where you need the ergonomics of nested dictionaries without the massive performance penalties of pointer-chasing and type instability.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Under the hood, a `StaticDictTree` acts like an in-memory database index. It flattens your hierarchy into an `NTuple{N, K}` composite key and automatically builds cached secondary indices. This allows for blazingly fast, $O(1)$ lookups of partial branches (prefixes) optimized heavily for **write-seldom, read-often** workflows.
+**StaticDictTrees.jl** provides a high-performance, type-stable, flattened hierarchical dictionary for Julia. It mimics the ergonomics of nested dictionaries without the complexity and type instability of nested `Dict` structures. By flattening hierarchies into `NTuple{N, K}` keys and using cached secondary indices, it enables O(1) lookups optimized for write-seldom, read-often workflows.
 
 ## Why StaticDictTrees?
 
-The standard way to represent hierarchical data in Julia is nesting: `Dict{String, Dict{String, Dict{String, Int}}}`. However, nested dictionaries suffer from:
+Standard nested dictionaries (e.g., `Dict{K, Dict{K, V}}`) suffer from:
 
-* **Poor Iteration:** Walking the tree requires complex recursive loops.
-* **Memory Overhead:** Every node is a newly allocated hash table.
+* **Poor Iteration:** Requires complex recursive loops.
+* **Memory Overhead:** Every node is a separate hash table allocation.
 * **Type Instability:** Hard to maintain strict typing across variable depths.
 
-`StaticDictTrees.jl` solves this by storing all values in a single, strictly typed flat vector, using tuple keys (e.g., `("server", "db", "latency")`), and providing zero-cost `StaticDictBranch` views to interact with sub-trees.
+`StaticDictTrees.jl` stores all values in a single flat vector and provides zero-cost `StaticDictBranch` views for sub-tree interaction.
 
-## Design Philosophy: The Fixed Depth Trade-off
+## Design choice: The Fixed Depth Trade-off
 
-You will notice that a `StaticDictTree` requires you to specify a fixed maximum depth, `N`, upfront (e.g., `StaticDictTree{3, String, Int}`). This is not an accident; it is a deliberate architectural trade-off to achieve maximum performance.
+In order to maximize performance, `StaticDictTree` relies on a fixed (*static*) tree depth, e.g., `StaticDictTree{3, Symbol, Int}`.  The reasons for such choices are:
 
-If we allowed variable-depth paths natively, we would have to use `Vector{K}` as our keys. Because vectors are dynamically sized, they live on the **heap**. Every single time you performed a dictionary lookup, Julia would have to allocate memory for the array, triggering the Garbage Collector and destroying performance. Alternatively, building a recursive tree (nodes pointing to nodes) would mean chasing pointers through memory with multiple expensive hash lookups per query.
+1. **Stack-allocated keys:** Paths are strictly `NTuple{N, K}`, avoiding heap allocations during lookups;
+2. **Contiguous Lookups:** Accessing deep values requires exactly one hash lookup. By flattening the path into a single composite key, `StaticDictTree` collapses multiple nested lookups into a single, direct memory access to the value vector;
+3. **Type Stability:** The JIT compiler can generate highly optimized, allocation-free machine code because the tree's structure and depth are encoded in the type parameters at compile time.
 
-By locking `N` into the type signature:
-
-1. **Keys live on the stack:** Your paths become `NTuple{N, K}`, which are stack-allocated, zero-overhead, and instantly hashed.
-2. **One contiguous lookup:** Looking up `dt["a", "b", "c"]` requires exactly one hash lookup, not three.
-3. **Perfect Type Stability:** The JIT compiler knows the exact size and type of every branch and root, allowing it to compile your lookups down to hyper-efficient, allocation-free machine code.
-
-*(**Tip for variable-depth data:** If you are modeling something with variable depth, like a file system, simply set `N` to your maximum expected depth and pad shallower paths with empty values like `""` or a dedicated `:empty` symbol!)*
 
 ## Installation
-
-*(Note: Once registered, users will install via the standard package manager)*
 
 ```julia
 using Pkg
 Pkg.add("StaticDictTrees")
-
 ```
 
-## Quick Start
+## Usage
 
-### 1. Creating a StaticDictTree
+### Creating a StaticDictTree
 
-Initialize a tree by specifying the depth (`N`), the key type (`K`), and the value type (`V`).
+Initialize a tree by specifying the tree depth (3), key type (`Symbol`), and value type (`Float64`). `Symbol` is the idiomatic choice for maximum performance.
 
 ```julia
 using StaticDictTrees
 
-# Create a tree with a fixed depth of 3, using String keys and Float64 values
-dt = StaticDictTree{3, String, Float64}()
-
-# Insert data using tuple keys
-dt["server", "db", "latency"] = 12.5
-dt["server", "db", "uptime"] = 99.9
-dt["local", "cache", "latency"] = 2.1
-
+dt = StaticDictTree{3, Symbol, Float64}()
+dt[:server, :db, :latency] = 12.5
+dt[:server, :db, :uptime] = 99.9
+dt[:local, :cache, :latency] = 2.1
 ```
 
-Because of our custom display methods, printing `dt` in the REPL yields a beautiful, visually indented tree:
+### Branching and Chaining (Views)
 
-```text
-StaticDictTree{3, String, Float64} with 3 entries:
-  "server"
-    "db"
-      "latency" => 12.5
-      "uptime" => 99.9
-  "local"
-    "cache"
-      "latency" => 2.1
-
-```
-
-### 2. Creating Branches (Views)
-
-You can instantly access a sub-tree by creating a `StaticDictBranch`. Branches are highly optimized, type-stable views that do not allocate new memory for their contents.
+`StaticDictBranch` provides a type-stable view into a sub-tree without memory reallocation. You can also chain branches together—they safely collapse down to the root parent automatically to preserve O(1) performance.
 
 ```julia
-# Create a branch by fixing the first prefix to "server"
-server_view = StaticDictBranch(dt, "server")
+# Branch from the root
+server_view = StaticDictBranch(dt, :server)
+println(server_view[:db, :latency]) # 12.5
 
-# Access the remaining dynamic keys normally
-println(server_view["db", "latency"]) # Output: 12.5
-
-# Mutating the branch mutates the underlying tree!
-server_view["db", "uptime"] = 100.0
-
+# Branch from another branch!
+db_view = StaticDictBranch(server_view, :db)
+db_view[:uptime] = 100.0 # Mutates the underlying root tree!
 ```
 
-### 3. Tree Navigation
+### Tree Navigation & Metadata
 
-`StaticDictTrees.jl` provides built-in utilities to navigate up and down your hierarchies.
+Navigate the hierarchy or check the remaining expected depth of any given view.
 
 ```julia
-# Check the required dynamic key length for the current view
-println(key_length(server_view)) # Output: 2
+println(key_length(server_view)) # Output: 2 (needs 2 more keys to reach a leaf)
 
-# Climb back up the tree
+# Climb back up the tree hierarchy
 root = parent(server_view)
-
 ```
 
-### 4. Single-Key Fallbacks
+### Single-Key Fallbacks
 
-For convenience, if you are working with a root tree of depth 1 (`N=1`) or a branch that only requires 1 more key (`M=1`), you can index it directly without wrapping your key in a tuple:
+If a tree or branch requires exactly 1 more key to reach a leaf (i.e., `key_length == 1`), you can omit the tuple syntax:
 
 ```julia
-db_view = StaticDictBranch(dt, "server", "db")
-
-# db_view expects 1 remaining key. We can omit the tuple parentheses!
-db_view["latency"] = 15.0 
-
+# db_view expects 1 remaining key
+db_view[:uptime] = 101.0
 ```
 
-## Advanced Features
+### Deletion vs. Pruning
 
-* **Iteration:** Iterating over a `StaticDictTree` or a `StaticDictBranch` yields `(key => value)` pairs in exact insertion order. Branch iteration is fully cached, meaning walking a subset of your data avoids redundant hash-lookups.
-* **Generics:** `K` can be any type that supports `hash` and `isequal`. Using `isbits` types like `Symbol` or `Int` will yield the maximum possible performance.
-* **Standard Base Extensions:** `keys()`, `values()`, `length()`, `isempty()`, and `empty!()` are fully implemented and optimized. Calling `values(branch)` returns a mutated standard `SubArray` view of the parent vector.
+* **`delete!`** removes a specific leaf entry from the tree.
+* **`prune!`** removes an entire branch and all of its associated leaves.
+
+```julia
+# Delete a specific leaf using a full tuple key
+delete!(dt, (:local, :cache, :latency))
+
+# Prune an entire branch from the root
+prune!(dt, :server, :db)
+
+# Prune via a branch view
+prune!(server_view, :db)
+```
+
+### Standard Dictionary Methods
+
+`StaticDictTrees.jl` fully supports Julia's standard dictionary interface.
+
+```julia
+dt = StaticDictTree{3, Symbol, Float64}()
+dt[:server, :db, :latency] = 12.5
+dt[:server, :db, :uptime] = 99.9
+dt[:local, :cache, :latency] = 2.1
+server_view = StaticDictBranch(dt, :server)
+
+# Iteration yields `key => value` in insertion order.
+for (k, v) in server_view
+    println(k, " -> ", v)
+end
+
+# Extract components
+k = keys(dt)
+v = values(server_view) # Returns a fast SubArray view of the root vector!
+
+# Emptying
+empty!(server_view) # Empties just the branch
+empty!(dt)          # Empties the entire tree
+```
+
+## Disclaimer
+
+This package was developed with the assistance of AI (Gemini), but all code has been manually reviewed and tested for type stability and correctness by the author.
