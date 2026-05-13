@@ -54,7 +54,6 @@ dt = StaticDictTree{3, String, Float64}()
 dt["server", "db", "latency"] = 12.5
 dt["server", "db", "uptime"] = 99.9
 dt["local", "cache", "latency"] = 2.1
-
 ```
 
 Because of our custom display methods, printing `dt` in the REPL yields a beautiful, visually indented tree:
@@ -68,7 +67,6 @@ StaticDictTree{3, String, Float64} with 3 entries:
   "local"
     "cache"
       "latency" => 2.1
-
 ```
 
 ### 2. Creating Branches (Views)
@@ -84,7 +82,6 @@ println(server_view["db", "latency"]) # Output: 12.5
 
 # Mutating the branch mutates the underlying tree!
 server_view["db", "uptime"] = 100.0
-
 ```
 
 ### 3. Tree Navigation
@@ -97,7 +94,6 @@ println(key_length(server_view)) # Output: 2
 
 # Climb back up the tree
 root = parent(server_view)
-
 ```
 
 ### 4. Single-Key Fallbacks
@@ -109,7 +105,6 @@ db_view = StaticDictBranch(dt, "server", "db")
 
 # db_view expects 1 remaining key. We can omit the tuple parentheses!
 db_view["latency"] = 15.0 
-
 ```
 
 ## Advanced Features
