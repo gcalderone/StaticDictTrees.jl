@@ -59,7 +59,7 @@ length(d::StaticDictTree) = length(d.values)
 
 Navigate up one level in the tree hierarchy.
 
-Calling parent on a StaticDictBranch returns the immediate parent branch or the root StaticDictTree. Calling parent on the root returns nothing.
+Calling parent on a StaticDictBranch returns the immediate parent branch or the root StaticDictTree. Calling parent on the root returns `nothing`.
 """
 parent(d::StaticDictTree) = nothing
 
@@ -214,10 +214,7 @@ function delete!(v::StaticDictBranch{N, M, K, V}, key::NTuple{M, K}) where {N, M
     delete!(v.parent, (v.prefix..., key...))
     return v
 end
-function delete!(v::StaticDictBranch{N, 1, K, V}, key::K) where {N, K, V}
-    delete!(v, (key,))
-    return v
-end
+delete!(v::StaticDictBranch{N, 1, K, V}, key::K) where {N, K, V} = delete!(v, (key,))
 
 # ------------------------------------------------------------------------------
 show(io::IO, d::StaticDictTree{N, K, V}) where {N, K, V} =

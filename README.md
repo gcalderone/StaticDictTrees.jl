@@ -31,11 +31,9 @@ By locking `N` into the type signature:
 ## Installation
 
 *(Note: Once registered, users will install via the standard package manager)*
-
 ```julia
 using Pkg
 Pkg.add("StaticDictTrees")
-
 ```
 
 ## Quick Start
@@ -43,7 +41,6 @@ Pkg.add("StaticDictTrees")
 ### 1. Creating a StaticDictTree
 
 Initialize a tree by specifying the depth (`N`), the key type (`K`), and the value type (`V`).
-
 ```julia
 using StaticDictTrees
 
@@ -57,7 +54,6 @@ dt["local", "cache", "latency"] = 2.1
 ```
 
 Because of our custom display methods, printing `dt` in the REPL yields a beautiful, visually indented tree:
-
 ```text
 StaticDictTree{3, String, Float64} with 3 entries:
   "server"
@@ -72,7 +68,6 @@ StaticDictTree{3, String, Float64} with 3 entries:
 ### 2. Creating Branches (Views)
 
 You can instantly access a sub-tree by creating a `StaticDictBranch`. Branches are highly optimized, type-stable views that do not allocate new memory for their contents.
-
 ```julia
 # Create a branch by fixing the first prefix to "server"
 server_view = StaticDictBranch(dt, "server")
@@ -87,7 +82,6 @@ server_view["db", "uptime"] = 100.0
 ### 3. Tree Navigation
 
 `StaticDictTrees.jl` provides built-in utilities to navigate up and down your hierarchies.
-
 ```julia
 # Check the required dynamic key length for the current view
 println(key_length(server_view)) # Output: 2
@@ -99,7 +93,6 @@ root = parent(server_view)
 ### 4. Single-Key Fallbacks
 
 For convenience, if you are working with a root tree of depth 1 (`N=1`) or a branch that only requires 1 more key (`M=1`), you can index it directly without wrapping your key in a tuple:
-
 ```julia
 db_view = StaticDictBranch(dt, "server", "db")
 

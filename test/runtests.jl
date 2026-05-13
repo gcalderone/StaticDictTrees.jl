@@ -4,6 +4,7 @@ using DataStructures, StaticDictTrees
 @testset "StaticDictTree and StaticDictBranch Comprehensive Suite" begin
 
     @testset "1. Basic Operations & Generic Key Types" begin
+        # Testing with Strings
         dt_str = StaticDictTree{2, String, Int}()
         @test isempty(dt_str)
         @test key_length(dt_str) == 2
@@ -17,6 +18,7 @@ using DataStructures, StaticDictTrees
         @test collect(keys(dt_str)) == [("user", "age"), ("user", "id")]
         @test collect(values(dt_str)) == [30, 101]
 
+        # Testing with Symbols
         dt_sym = StaticDictTree{3, Symbol, Float64}()
         dt_sym[:sys, :cpu, :usage] = 45.5
         dt_sym[:sys, :mem, :usage] = 80.0
@@ -26,17 +28,20 @@ using DataStructures, StaticDictTrees
     end
 
     @testset "2. Single-Key Fallbacks" begin
+        # Root fallback (N=1)
         dt1 = StaticDictTree{1, Symbol, String}()
         dt1[:a] = "Alpha"
         @test dt1[:a] == "Alpha"
         @test dt1[(:a,)] == "Alpha"
 
+        # Branch fallback (M=1)
         dt3 = StaticDictTree{3, Symbol, String}()
         dt3[:a, :b, :c] = "Target"
 
         branch = StaticDictBranch(dt3, :a, :b)
         @test key_length(branch) == 1
 
+        # Access via single key instead of 1-tuple
         @test branch[:c] == "Target"
         branch[:d] = "New Target"
         @test dt3[:a, :b, :d] == "New Target"
@@ -48,18 +53,22 @@ using DataStructures, StaticDictTrees
         dt["A", "B", "D"] = "Data 2"
         dt["A", "X", "Y"] = "Data 3"
 
+        # Create a branch by fixing the first prefix
         branch_A = StaticDictBranch(dt, "A")
 
         @test length(branch_A) == 3
         @test collect(keys(branch_A)) == [("B", "C"), ("B", "D"), ("X", "Y")]
 
+        # Create a deeper branch by fixing two prefixes
         branch_AB = StaticDictBranch(dt, "A", "B")
         @test length(branch_AB) == 2
         @test collect(values(branch_AB)) == ["Data 1", "Data 2"]
 
+        # Mutation through the branch
         branch_AB["E"] = "Data 4"
-        @test dt["A", "B", "E"] == "Data 4"
+        @test dt["A", "B", "E"] == "Data 4" # Check root
 
+        # Assertion Error for too many keys (F >= N)
         @test_throws AssertionError StaticDictBranch(dt, "A", "B", "C")
     end
 
@@ -67,15 +76,16 @@ using DataStructures, StaticDictTrees
         dt = StaticDictTree{4, Symbol, Int}()
         dt[:a, :b, :c, :d] = 100
 
-        branch_abc = StaticDictBranch(dt, :a, :b, :c)
-        branch_ab = StaticDictBranch(dt, :a, :b)
-        branch_a = StaticDictBranch(dt, :a)
+        branch_abc = StaticDictBranch(dt, :a, :b, :c) # M = 1
+        branch_ab = StaticDictBranch(dt, :a, :b)      # M = 2
+        branch_a = StaticDictBranch(dt, :a)           # M = 3
 
         @test key_length(dt) == 4
         @test key_length(branch_a) == 3
         @test key_length(branch_ab) == 2
         @test key_length(branch_abc) == 1
 
+        # Climb the tree dynamically!
         p1 = parent(branch_abc)
         @test p1.prefix == (:a, :b)
         @test key_length(p1) == 2
@@ -85,7 +95,7 @@ using DataStructures, StaticDictTrees
         @test key_length(p2) == 3
 
         p3 = parent(p2)
-        @test p3 isa StaticDictTree
+        @test p3 isa StaticDictTree # We reached the root!
         @test parent(p3) === nothing
     end
 
@@ -95,12 +105,14 @@ using DataStructures, StaticDictTrees
         dt["group2", "B"] = 20
         dt["group1", "C"] = 30
 
+        # Root iteration
         @test collect(dt) == [
             ("group1", "A") => 10,
             ("group2", "B") => 20,
             ("group1", "C") => 30
         ]
 
+        # Branch iteration
         branch = StaticDictBranch(dt, "group1")
         @test collect(branch) == [
             ("A",) => 10,
@@ -117,15 +129,17 @@ using DataStructures, StaticDictTrees
         @test length(dt) == 2
         @test length(branch) == 2
 
+        # Empty the root
         empty!(dt)
 
         @test length(dt) == 0
         @test isempty(dt)
-        @test length(branch) == 0
+        @test length(branch) == 0 # Branch should dynamically reflect the empty root
 
+        # Ensure we can insert again without BoundsErrors
         dt[:x, :y, :z] = 9.9
         @test dt[:x, :y, :z] == 9.9
-        @test length(dt.branchinds) == 2
+        @test length(dt.branchinds) == 2 # Pre-allocated structural vectors should remain intact
     end
 
     @testset "7. Deletion & Index Shifting" begin
@@ -135,13 +149,22 @@ using DataStructures, StaticDictTrees
         dt["local", "cache", "size"] = 500
 
         branch = StaticDictBranch(dt, "server", "db")
+
+        # Test deletion via branch with single-key fallback
         delete!(branch, "latency")
+
         @test length(dt) == 2
         @test !haskey(dt, ("server", "db", "latency"))
+
+        # Verify index shifting: the index of ("local", "cache", "size") should have moved
         @test dt["local", "cache", "size"] == 500
+
+        # Test branch pruning
         delete!(dt, ("local", "cache", "size"))
+        # The "local" branch should no longer exist in branchinds
         @test !haskey(dt.branchinds[2], ("local",))
 
+        # Test root single-key fallback for N=1
         dt1 = StaticDictTree{1, Symbol, Int}()
         dt1[:a] = 1
         delete!(dt1, :a)
@@ -152,12 +175,13 @@ using DataStructures, StaticDictTrees
         dt = StaticDictTree{3, String, Int64}()
         dt["A", "B", "C"] = 1
 
+        # We just want to ensure these don't throw an error when formatting
         buf = IOBuffer()
         show(buf, dt)
         @test occursin("StaticDictTree{3, String, Int64}", String(take!(buf)))
 
         show(buf, MIME("text/plain"), dt)
-      @test occursin("=> 1", String(take!(buf)))
+        @test occursin("=> 1", String(take!(buf)))
 
         branch = StaticDictBranch(dt, "A")
         show(buf, MIME("text/plain"), branch)
