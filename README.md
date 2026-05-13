@@ -25,6 +25,7 @@ In order to maximize performance, `StaticDictTree` relies on a fixed (*static*) 
 
 ## Installation
 
+=======
 ```julia
 using Pkg
 Pkg.add("StaticDictTrees")
@@ -62,7 +63,6 @@ db_view[:uptime] = 100.0 # Mutates the underlying root tree!
 ### Tree Navigation & Metadata
 
 Navigate the hierarchy or check the remaining expected depth of any given view.
-
 ```julia
 println(key_length(server_view)) # Output: 2 (needs 2 more keys to reach a leaf)
 
