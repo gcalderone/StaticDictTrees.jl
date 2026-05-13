@@ -1,0 +1,12 @@
+name = "StaticDictTrees"
+uuid = "1b20ab03-d99d-403f-8d72-12834f328db8"
+version = "0.1.0"
+authors = ["Giorgio Calderone <giorgio.calderone@gmail.com>"]
+
+[deps]
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+DataStructures = "0.19.4"
+Test = "1.11.0"
