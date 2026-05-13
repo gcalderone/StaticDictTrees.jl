@@ -2,7 +2,7 @@ module StaticDictTrees
 
 using DataStructures
 
-import Base: empty!, length, iterate, getindex, setindex!, keys, values, parent, show
+import Base: empty!, length, iterate, getindex, setindex!, keys, values, parent, show, delete!
 export AbstractStaticDictTree, StaticDictTree, StaticDictBranch, key_length
 
 """
@@ -32,9 +32,9 @@ julia> dt["server", "db", "latency"]
 struct StaticDictTree{N, K, V} <: AbstractStaticDictTree{N, K, V}
     values::Vector{V}
     lookup::OrderedDict{NTuple{N, K}, Int}
-    branchinds::Vector{OrderedDict{Tuple, Vector{Int}}}  
+    branchinds::Vector{OrderedDict{Tuple, Vector{Int}}}
     branchkeys::Vector{OrderedDict{Tuple, Vector{Tuple}}}
-    
+
     function StaticDictTree{N, K, V}() where {N, K, V}
         branchinds = [OrderedDict{Tuple, Vector{Int}}()   for i in 1:(N-1)]
         branchkeys = [OrderedDict{Tuple, Vector{Tuple}}() for i in 1:(N-1)]
@@ -103,6 +103,57 @@ function iterate(d::StaticDictTree, state=iterate(d.lookup))
     return (key => d.values[i], iterate(d.lookup, next_state))
 end
 
+function delete!(d::StaticDictTree{N, K, V}, key::NTuple{N, K}) where {N, K, V}
+    if !haskey(d.lookup, key)
+        return d
+    end
+
+    I = d.lookup[key]
+
+    # Remove from flat vector and primary lookup
+    deleteat!(d.values, I)
+    delete!(d.lookup, key)
+
+    # Shift indices in the primary lookup
+    for (k, idx) in d.lookup
+        if idx > I
+            d.lookup[k] = idx - 1
+        end
+    end
+
+    # Update and prune branch caches
+    for M in 1:(N-1)
+        F = N - M
+        prefix = key[1:M]
+
+        if haskey(d.branchinds[F], prefix)
+            inds = d.branchinds[F][prefix]
+            keys_vec = d.branchkeys[F][prefix]
+
+            pos = findfirst(==(I), inds)
+            if pos !== nothing
+                deleteat!(inds, pos)
+                deleteat!(keys_vec, pos)
+            end
+
+            if isempty(inds)
+                delete!(d.branchinds[F], prefix)
+                delete!(d.branchkeys[F], prefix)
+            end
+        end
+
+        for inds in values(d.branchinds[F])
+            for i in eachindex(inds)
+                if inds[i] > I
+                    inds[i] -= 1
+                end
+            end
+        end
+    end
+    return d
+end
+
+delete!(d::StaticDictTree{N, K, V}, key::K) where {N, K, V} = delete!(d, (key,))
 
 # ------------------------------------------------------------------------------
 """
@@ -124,7 +175,7 @@ julia> branch["db", "latency"]
 struct StaticDictBranch{N, M, K, V} <: AbstractStaticDictTree{M, K, V}
     parent::StaticDictTree{N, K, V}
     prefix::Tuple
-    
+
     function StaticDictBranch(d::StaticDictTree{N, K, V}, prefix::Vararg{K, F}) where {N, K, V, F}
         @assert F < N "Too many keys provided ($F >= $N)"
         return new{N, N-F, K, V}(d, prefix)
@@ -160,41 +211,53 @@ function iterate(v::StaticDictBranch, state)
     return (key => v[key], (kk, iterate(kk, next_state)))
 end
 
+function delete!(v::StaticDictBranch{N, M, K, V}, key::NTuple{M, K}) where {N, M, K, V}
+    delete!(v.parent, (v.prefix..., key...))
+    return v
+end
+function delete!(v::StaticDictBranch{N, M, K, V}, key::K) where {N, M, K, V}
+    delete!(v, (key,))
+    return v
+end
 
 # ------------------------------------------------------------------------------
-show(io::IO, d::StaticDictTree{N, K, V}) where {N, K, V} = 
+show(io::IO, d::StaticDictTree{N, K, V}) where {N, K, V} =
     print(io, "StaticDictTree{$N, $K, $V} with $(length(d)) entries")
 
-show(io::IO, v::StaticDictBranch{N, M, K, V}) where {N, M, K, V} = 
+show(io::IO, v::StaticDictBranch{N, M, K, V}) where {N, M, K, V} =
     print(io, "StaticDictBranch{$N, $M, $K, $V} (prefix = $(v.prefix)) with $(length(v)) entries")
 
 function show(io::IO, ::MIME"text/plain", d::AbstractStaticDictTree)
     SEP = "    "
     show(io, d)
     print(io, ":")
-    
+
     isempty(d) && return
     println(io)
-    
+
     prev_key = ()
     is_first = true
-    
+
     for (key, val) in d
         match_len = 0
         for i in 1:min(length(prev_key), length(key))
-            prev_key[i] == key[i] ? (match_len += 1) : break
+            if prev_key[i] == key[i]
+                match_len += 1
+            else
+                break
+            end
         end
-        
+
         for i in (match_len + 1):(length(key) - 1)
             !is_first && println(io)
             print(io, SEP^i, repr(key[i]))
             is_first = false
         end
-        
+
         !is_first && println(io)
         print(io, SEP^length(key), repr(key[end]), " => ", repr(val))
         is_first = false
-        
+
         prev_key = key
     end
 end
