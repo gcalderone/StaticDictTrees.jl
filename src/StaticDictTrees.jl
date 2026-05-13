@@ -18,7 +18,7 @@ VT  = Value Type
     AbstractStaticDictTree{N, K, V} <: AbstractDict{NTuple{N, K}, V}
 
 The abstract supertype for fixed-depth hierarchical dictionary structures.
-It requires keys of type `NTuple{N, K}` and values of type `V`.
+It relies on keys of type `NTuple{N, K}` and values of type `V`.
 """
 abstract type AbstractStaticDictTree{TRD, KT, VT} <: AbstractDict{NTuple{TRD, KT}, VT} end
 
@@ -75,7 +75,7 @@ parent(d::StaticDictTree) = nothing
 """
     key_length(d::AbstractStaticDictTree)
 
-Return the number of remaining key segments required to access a leaf value in the tree or branch.
+Return the number of key elements required to access a leaf value in the tree or branch.
 """
 key_length(d::StaticDictTree{TRD, KT, VT}) where {TRD, KT, VT} = TRD
 
@@ -165,10 +165,12 @@ end
 """
     prune!(d::AbstractStaticDictTree, prefix...)
 
-A convenience function to delete an entire branch directly from the root tree.
+Delete an entire branch from a tree.
 
 # Examples
 ```julia-repl
+julia> dt = StaticDictTree{3, String, Float64}()
+julia> dt["server", "db", "latency"] = 12.5
 julia> prune!(dt, "server", "db")
 """
 function prune!(d::StaticDictTree{TRD, KT, VT}, prefix::Vararg{KT, PRD}) where {TRD, KT, VT, PRD}
@@ -186,11 +188,11 @@ end
 
 # ------------------------------------------------------------------------------
 """
-    StaticDictBranch(d::StaticDictTree{N, K, V}, prefix::Vararg{K, F})
+    StaticDictBranch(d::StaticDictTree{N, K, V}, prefix::Vararg{K, P})
 
 Create a zero-cost, type-stable view into a sub-tree of a StaticDictTree.
 
-The StaticDictBranch acts exactly like a dictionary, but expects M keys (where M = N - F). Mutating a branch will safely mutate the underlying root tree.
+The StaticDictBranch acts exactly like a dictionary, but expects M keys (where M = N - P). Mutating a branch will safely mutate the underlying root tree.
 
 # Examples
 ```julia-repl

@@ -35,7 +35,7 @@ Pkg.add("StaticDictTrees")
 
 ### Creating a StaticDictTree
 
-Initialize a tree by specifying the tree depth (3), key type (`Symbol`), and value type (`Float64`). `Symbol` is the idiomatic choice for maximum performance.
+Initialize a tree by specifying the tree depth (3), key type (`Symbol`), and value type (`Float64`).
 
 ```julia
 using StaticDictTrees
@@ -44,6 +44,12 @@ dt = StaticDictTree{3, Symbol, Float64}()
 dt[:server, :db, :latency] = 12.5
 dt[:server, :db, :uptime] = 99.9
 dt[:local, :cache, :latency] = 2.1
+```
+
+`Symbol` is the idiomatic choice for maximum performance, but any other type such as `String` or `Int` can be used as keys, e.g.:
+```julia
+julia> dt = StaticDictTree{2, Int, Float64}()
+julia> dt[1, 2] = NaN
 ```
 
 ### Branching and Chaining (Views)
