@@ -3,275 +3,356 @@ module StaticDictTrees
 using DataStructures
 
 import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, delete!
+
 export AbstractStaticDictTree, StaticDictTree, StaticDictBranch, key_length, prune!
 
 #=
 Conventions:
-TRD = Tree Depth
-PRD = Prefix Depth
-BRD = Branch Depth
-KT  = Key Type
+KT  = Key Type (heterogeneous tuples allowed, e.g., Tuple{Int, String, Symbol})
 VT  = Value Type
+BRT = Branch key Type (remaining suffix of the tuple)
+BRD = Branch Depth
+PRD = Prefix Depth
 =#
 
-"""
-    AbstractStaticDictTree{N, K, V} <: AbstractDict{NTuple{N, K}, V}
-
-The abstract supertype for fixed-depth hierarchical dictionary structures.
-It relies on keys of type `NTuple{N, K}` and values of type `V`.
-"""
-abstract type AbstractStaticDictTree{TRD, KT, VT} <: AbstractDict{NTuple{TRD, KT}, VT} end
-
+# ------------------------------------------------------------------------------
+# Dummy Value Providers
+# ------------------------------------------------------------------------------
 
 """
-    StaticDictTree{N, K, V}()
+    default_dummy(::Type{T})
 
-Construct an empty, high-performance, flattened hierarchical dictionary with a strictly fixed depth of `N`.
-
-Unlike standard nested dictionaries, a `StaticDictTree` stores all values in a single flat vector and uses `NTuple{N, K}` as composite keys. This guarantees type stability, O(1) lookups, and memory efficiency for hierarchical data.
-
-# Examples
-```julia-repl
-julia> dt = StaticDictTree{3, String, Float64}()
-julia> dt["server", "db", "latency"] = 12.5
-julia> dt["server", "db", "latency"]
-12.5
-```
+Returns a safe default value for type `T` to be used as padding in `StaticDictTree`.
+You can extend this for your own custom types.
 """
-struct StaticDictTree{TRD, KT, VT} <: AbstractStaticDictTree{TRD, KT, VT}
+default_dummy(::Type{Symbol}) = :_
+default_dummy(::Type{String}) = ""
+default_dummy(::Type{Char})   = '\0'
+default_dummy(::Type{Bool})   = false
+default_dummy(::Type{T}) where {T <: Number} = zero(T)
+
+@generated function default_dummy(::Type{T}) where {T <: Tuple}
+    exprs = [:(default_dummy($t)) for t in fieldtypes(T)]
+    return :( ($(exprs...),)::T )
+end
+
+# Fallback error for custom types providing instructuions to the user
+default_dummy(::Type{T}) where {T} = error(
+    "No default dummy value defined for type `$T`. To fix this use the following code:\n" *
+    "import StaticDictTrees: default_dummy\n" *
+    "default_dummy(::Type{$T}) = ...a dummy value...\n"
+)
+
+
+# ------------------------------------------------------------------------------
+# Core Structures
+# ------------------------------------------------------------------------------
+
+abstract type AbstractStaticDictTree{KT <: Tuple, VT} <: AbstractDict{KT, VT} end
+
+struct StaticDictTree{KT <: Tuple, VT} <: AbstractStaticDictTree{KT, VT}
     values::Vector{VT}
-    lookup::OrderedDict{NTuple{TRD, KT}, Int}
-    branchinds::Vector{OrderedDict{Tuple, Vector{Int}}}
-    branchkeys::Vector{OrderedDict{Tuple, Vector{Tuple}}}
+    lookup::OrderedDict{KT, Int}
+    branch_lookup::Vector{OrderedDict{KT, Vector{Int}}}
+    branch_keys::Vector{OrderedDict{KT, Vector{KT}}} 
+    dummy_key::KT  
 
-    function StaticDictTree{TRD, KT, VT}() where {TRD, KT, VT}
-        branchinds = [OrderedDict{Tuple, Vector{Int}}()   for i in 1:(TRD-1)]
-        branchkeys = [OrderedDict{Tuple, Vector{Tuple}}() for i in 1:(TRD-1)]
-        new{TRD, KT, VT}(Vector{VT}(), OrderedDict{NTuple{TRD, KT}, Int}(), branchinds, branchkeys)
+    function StaticDictTree{KT, VT}() where {KT <: Tuple, VT}
+        dummy_key = default_dummy(KT)
+        N = fieldcount(KT)
+        bl = [OrderedDict{KT, Vector{Int}}() for _ in 1:N-1]
+        bk = [OrderedDict{KT, Vector{KT}}()  for _ in 1:N-1]
+        new{KT, VT}(VT[], OrderedDict{KT, Int}(), bl, bk, dummy_key)
     end
 end
+
+function StaticDictTree(d::AbstractDict{KT, VT}) where {KT <: Tuple, VT}
+    out = StaticDictTree{KT, VT}()
+    for (k, v) in d
+        out[k] = v
+    end
+end
+StaticDictTree(p::Vararg{Pair{KT, VT}}) where {KT <: Tuple, VT} = StaticDictTree(OrderedDict{KT, VT}(p...))
 
 function empty!(d::StaticDictTree)
     empty!(d.values)
     empty!(d.lookup)
-    empty!.(d.branchinds)
-    empty!.(d.branchkeys)
+    empty!.(d.branch_lookup)
+    empty!.(d.branch_keys)
     return d
 end
 
 keys(  d::StaticDictTree) = keys(d.lookup)
 values(d::StaticDictTree) = d.values
 length(d::StaticDictTree) = length(d.values)
-
-"""
-    parent(d::AbstractStaticDictTree)
-
-Navigate up one level in the tree hierarchy.
-
-Calling parent on a StaticDictBranch returns the immediate parent branch or the root StaticDictTree. Calling parent on the root returns `nothing`.
-"""
+haskey(d::StaticDictTree{KT, VT}, key::KT) where {KT, VT} = haskey(d.lookup, key)
 parent(d::StaticDictTree) = nothing
 
-"""
-    key_length(d::AbstractStaticDictTree)
+function iterate(d::StaticDictTree, state=iterate(d.lookup))
+    (state === nothing) && (return nothing)
+    (key, i), next_state = state
+    return (key => d.values[i], iterate(d.lookup, next_state))
+end
 
-Return the number of key elements required to access a leaf value in the tree or branch.
-"""
-key_length(d::StaticDictTree{TRD, KT, VT}) where {TRD, KT, VT} = TRD
+getindex(d::StaticDictTree{KT, VT}, key::KT) where {KT, VT} = d.values[d.lookup[key]]
 
-getindex(d::StaticDictTree{TRD, KT, VT}, key::NTuple{TRD, KT}) where {TRD, KT, VT} = d.values[d.lookup[key]]
-getindex(d::StaticDictTree{1  , KT, VT}, key::KT)              where {     KT, VT} = d[(key,)]
+# Insertion logic
+@generated function _insert_branches!(d::StaticDictTree{KT}, key::KT, I::Int) where {KT <: Tuple}
+    N = fieldcount(KT)
+    exprs = Expr[]
+    
+    for prd in 1:(N-1)
+        brd = N - prd
+        
+        padded_expr = Expr(:tuple)
+        for i in 1:prd
+            push!(padded_expr.args, :(key[$i]))
+        end
+        for i in (prd+1):N
+            push!(padded_expr.args, :(d.dummy_key[$i]))
+        end
+        
+        push!(exprs, quote
+            padded_prefix = $(padded_expr)::KT
+            
+            if !haskey(d.branch_lookup[$brd], padded_prefix)
+                d.branch_lookup[$brd][padded_prefix] = Int[]
+                d.branch_keys[$brd][padded_prefix] = KT[]
+            end
+            push!(d.branch_lookup[$brd][padded_prefix], I)
+            push!(d.branch_keys[$brd][padded_prefix], key) 
+        end)
+    end
+    
+    return Expr(:block, exprs...)
+end
 
-function setindex!(d::StaticDictTree{TRD, KT, VT}, value, key::NTuple{TRD, KT}) where {TRD, KT, VT}
+function setindex!(d::StaticDictTree{KT, VT}, value, key::KT) where {KT, VT}
     if haskey(d.lookup, key)
         d.values[d.lookup[key]] = value
     else
         push!(d.values, value)
         I = length(d.values)
         d.lookup[key] = I
-
-        for prd in 1:(TRD-1)
-            brd = TRD - prd
-            prefix = key[1:prd]
-            if !haskey(d.branchinds[brd], prefix)
-                d.branchinds[brd][prefix] = Vector{Int}()
-                d.branchkeys[brd][prefix] = Vector{Tuple}()
-            end
-            push!(d.branchinds[brd][prefix], I)
-            push!(d.branchkeys[brd][prefix], key[prd+1:end])
-        end
+        _insert_branches!(d, key, I)
     end
     return value
-end
-setindex!(d::StaticDictTree{1, KT, VT}, value, key::KT) where {KT, VT} = setindex!(d, value, (key,))
-
-function iterate(d::StaticDictTree, state=iterate(d.lookup))
-    (state === nothing)  &&  (return nothing)
-    (key, i), next_state = state
-    return (key => d.values[i], iterate(d.lookup, next_state))
-end
-
-delete!(d::StaticDictTree{1  , KT, VT}, key::KT)              where {     KT, VT} = delete!(d, (key,))
-function delete!(d::StaticDictTree{TRD, KT, VT}, key::NTuple{TRD, KT}) where {TRD, KT, VT}
-    if !haskey(d.lookup, key)
-        return d
-    end
-
-    I = d.lookup[key]
-
-    # Remove from values and lookup
-    deleteat!(d.values, I)
-    delete!(d.lookup, key)
-
-    # Shift indices in the primary lookup
-    for (k, idx) in d.lookup
-        if idx > I
-            d.lookup[k] = idx - 1
-        end
-    end
-
-    # Update and prune branch caches
-    for prd in 1:(TRD-1)
-        brd = TRD - prd
-        prefix = key[1:prd]
-
-        if haskey(d.branchinds[brd], prefix)
-            ii =  d.branchinds[brd][ prefix]
-            kk =  d.branchkeys[brd][ prefix]
-
-            pos = findfirst(==(I), ii)
-            if pos !== nothing
-                deleteat!(ii, pos)
-                deleteat!(kk, pos)
-            end
-
-            if isempty(ii)
-                delete!(d.branchinds[brd], prefix)
-                delete!(d.branchkeys[brd], prefix)
-            end
-        end
-
-        for ii in values(d.branchinds[brd])
-            for i in eachindex(ii)
-                if ii[i] > I
-                    ii[i] -= 1
-                end
-            end
-        end
-    end
-    return d
-end
-
-"""
-    prune!(d::AbstractStaticDictTree, prefix...)
-
-Delete an entire branch from a tree.
-
-# Examples
-```julia-repl
-julia> dt = StaticDictTree{3, String, Float64}()
-julia> dt["server", "db", "latency"] = 12.5
-julia> prune!(dt, "server", "db")
-"""
-function prune!(d::StaticDictTree{TRD, KT, VT}, prefix::Vararg{KT, PRD}) where {TRD, KT, VT, PRD}
-    @assert PRD <= TRD "Cannot prune past the leaf level"
-    if PRD == TRD
-        return delete!(d, prefix)
-    end
-    for key in collect(keys(StaticDictBranch(d, prefix...)))
-        k = (prefix..., key...)
-        delete!(d, k)
-    end
-    return d
 end
 
 
 # ------------------------------------------------------------------------------
-"""
-    StaticDictBranch(d::StaticDictTree{N, K, V}, prefix::Vararg{K, P})
+@generated function _pad_dynamic(prefix::T, dummy::KT) where {T <: Tuple, KT <: Tuple}
+    P = fieldcount(T)
+    N = fieldcount(KT)
+    exprs = [i <= P ? :(prefix[$i]) : :(dummy[$i]) for i in 1:N]
+    return :( ($(exprs...),)::KT )
+end
 
-Create a zero-cost, type-stable view into a sub-tree of a StaticDictTree.
+@generated function _extract_suffix(k::KT, ::Val{PRD}) where {KT <: Tuple, PRD}
+    N = fieldcount(KT)
+    exprs = [:(k[$i]) for i in (PRD+1):N]
+    return :( ($(exprs...),) )
+end
 
-The StaticDictBranch acts exactly like a dictionary, but expects M keys (where M = N - P). Mutating a branch will safely mutate the underlying root tree.
-
-# Examples
-```julia-repl
-julia> dt = StaticDictTree{3, String, Float64}()
-julia> dt["server", "db", "latency"] = 12.5
-julia> branch = StaticDictBranch(dt, "server")
-julia> branch["db", "latency"]
-12.5
-```
-"""
-struct StaticDictBranch{TRD, BRD, KT, VT} <: AbstractStaticDictTree{BRD, KT, VT}
-    parent::StaticDictTree{TRD, KT, VT}
+struct StaticDictBranch{KT, BRT, VT} <: AbstractStaticDictTree{BRT, VT}
+    parent::StaticDictTree{KT, VT}
     prefix::Tuple
+    padded_prefix::KT
+    prd::Int
 
-    function StaticDictBranch(d::StaticDictTree{TRD, KT, VT}, prefix::Vararg{KT, PRD}) where {TRD, KT, VT, PRD}
-        @assert PRD < TRD "The tree has a fixed depth of $TRD, no branch can be generated with $PRD keys"
-        return new{TRD, TRD - PRD, KT, VT}(d, prefix)
-    end
-
-    function StaticDictBranch(d::StaticDictBranch{TRD, BRD, KT, VT}, prefix::Vararg{KT, PRD}) where {TRD, BRD, KT, VT, PRD}
-        @assert PRD < BRD "The branch has a fixed depth of $TRD, no branch can be generated with $PRD keys"
-        return StaticDictBranch(d.parent, d.prefix..., prefix...)
+    function StaticDictBranch(d::StaticDictTree{KT, VT}, prefix::Tuple) where {KT, VT}
+        prd = length(prefix)
+        N = fieldcount(KT)
+        @assert prd < N "The tree has a fixed depth of $N, can't accomodate a prefix with length $prd"
+        
+        padded = _pad_dynamic(prefix, d.dummy_key)
+        brt_types = fieldtypes(KT)[prd+1:end]
+        BRT = Tuple{brt_types...}
+        
+        return new{KT, BRT, VT}(d, prefix, padded, prd)
     end
 end
 
-function Base.empty!(v::StaticDictBranch{TRD, BRD, KT, VT}) where {TRD, BRD, KT, VT}
+function StaticDictBranch(v::StaticDictBranch, prefix::Tuple)
+    return StaticDictBranch(v.parent, (v.prefix..., prefix...))
+end
+
+function empty!(v::StaticDictBranch)
     for k in collect(keys(v))
         delete!(v, k)
     end
     return v
 end
 
-keys(  v::StaticDictBranch{TRD, BRD, KT, VT}) where {TRD, BRD, KT, VT} = get(v.parent.branchkeys[BRD], v.prefix, Tuple[])
-values(v::StaticDictBranch{TRD, BRD, KT, VT}) where {TRD, BRD, KT, VT} = view(v.parent.values, get(v.parent.branchinds[BRD], v.prefix, Int[]))
-length(v::StaticDictBranch) = length(keys(v))
-
-function parent(v::StaticDictBranch{TRD, BRD, KT, VT}) where {TRD, BRD, KT, VT}
-    (key_length(v.parent) == BRD + 1)  &&  (return v.parent)
-    return StaticDictBranch(v.parent, v.prefix[1:(end-1)]...)
+function keys(v::StaticDictBranch{KT, BRT, VT}) where {KT, BRT, VT}
+    brd = fieldcount(KT) - v.prd
+    dict_keys = v.parent.branch_keys[brd]
+    full_keys = get(dict_keys, v.padded_prefix, KT[])
+    return [_extract_suffix(k, Val(v.prd))::BRT for k in full_keys]
 end
-key_length(d::StaticDictBranch{TRD, BRD, KT, VT}) where {TRD, BRD, KT, VT} = BRD
 
-getindex(v::StaticDictBranch{TRD, BRD, KT, VT}, key::NTuple{BRD, KT}) where {TRD, BRD, KT, VT} = v.parent[(v.prefix..., key...)]
-getindex(v::StaticDictBranch{TRD,   1, KT, VT}, key::KT)              where {TRD,      KT, VT} = v[(key,)]
+function values(v::StaticDictBranch{KT, BRT, VT}) where {KT, BRT, VT}
+    brd = fieldcount(KT) - v.prd
+    dict_lookup = v.parent.branch_lookup[brd]
+    inds = get(dict_lookup, v.padded_prefix, Int[])
+    return view(v.parent.values, inds)
+end
 
-setindex!(v::StaticDictBranch{TRD, BRD, KT, VT}, value, key::NTuple{BRD, KT}) where {TRD, BRD, KT, VT} = v.parent[(v.prefix..., key...)] = value
-setindex!(v::StaticDictBranch{TRD,   1, KT, VT}, value, key::KT)              where {TRD,      KT, VT} = setindex!(v, value, (key,))
+function length(v::StaticDictBranch{KT, BRT, VT}) where {KT, BRT, VT}
+    brd = fieldcount(KT) - v.prd
+    dict_lookup = v.parent.branch_lookup[brd]
+    return length(get(dict_lookup, v.padded_prefix, Int[]))
+end
+
+haskey(v::StaticDictBranch{KT, BRT, VT}, key::BRT) where {KT, BRT, VT} = haskey(v.parent, (v.prefix..., key...))
+
+function parent(v::StaticDictBranch{KT, BRT, VT}) where {KT, BRT, VT}
+    (v.prd == 1) && return v.parent
+    return StaticDictBranch(v.parent, v.prefix[1:(end-1)])
+end
 
 function iterate(v::StaticDictBranch)
     kk = keys(v)
-    (length(kk) == 0)  &&  (return nothing)
+    (length(kk) == 0) && return nothing
     return iterate(v, (kk, iterate(kk)))
 end
 
 function iterate(v::StaticDictBranch, state)
     kk, tmp = state
-    (tmp === nothing)  &&  (return nothing)
+    (tmp === nothing) && return nothing
     key, next_state = tmp
     return (key => v[key], (kk, iterate(kk, next_state)))
 end
 
-delete!(v::StaticDictBranch{TRD, 1  , KT, VT}, key::KT)              where {TRD,      KT, VT} = delete!(v, (key,))
-function delete!(v::StaticDictBranch{TRD, BRD, KT, VT}, key::NTuple{BRD, KT}) where {TRD, BRD, KT, VT}
-    delete!(v.parent, (v.prefix..., key...))
-    return v
+getindex(v::StaticDictBranch{KT, BRT, VT}, key::BRT) where {KT, BRT, VT} = v.parent[(v.prefix..., key...)]
+getindex(v::StaticDictBranch{KT, BRT, VT}, key)      where {KT, BRT, VT} = v[(key,)]
+
+setindex!(v::StaticDictBranch{KT, BRT, VT}, value, key::BRT) where {KT, BRT, VT} = v.parent[(v.prefix..., key...)] = value
+setindex!(v::StaticDictBranch{KT, BRT, VT}, value, key)      where {KT, BRT, VT} = setindex!(v, value, (key,))
+
+# ------------------------------------------------------------------------------
+# Deletion and pruning logic
+@generated function _delete_branches!(d::StaticDictTree{KT}, key::KT, I::Int) where {KT <: Tuple}
+    N = fieldcount(KT)
+    exprs = Expr[]
+    
+    for prd in 1:(N-1)
+        brd = N - prd
+        
+        padded_expr = Expr(:tuple)
+        for i in 1:prd
+            push!(padded_expr.args, :(key[$i]))
+        end
+        for i in (prd+1):N
+            push!(padded_expr.args, :(d.dummy_key[$i]))
+        end
+        
+        push!(exprs, quote
+            padded_prefix = $(padded_expr)::KT
+            
+            # Remove from branch_keys
+            keys_vec = d.branch_keys[$brd][padded_prefix]
+            k_idx = findfirst(==(key), keys_vec)
+            (k_idx !== nothing) && deleteat!(keys_vec, k_idx)
+            
+            # Remove from branch_lookup
+            inds_vec = d.branch_lookup[$brd][padded_prefix]
+            i_idx = findfirst(==(I), inds_vec)
+            (i_idx !== nothing) && deleteat!(inds_vec, i_idx)
+            
+            # Clean up memory if branch becomes empty
+            if isempty(keys_vec)
+                delete!(d.branch_keys[$brd], padded_prefix)
+                delete!(d.branch_lookup[$brd], padded_prefix)
+            end
+        end)
+    end
+    return Expr(:block, exprs...)
 end
 
-function prune!(v::StaticDictBranch{TRD, BRD, KT, VT}, prefix::Vararg{KT, PRD}) where {TRD, BRD, KT, VT, PRD}
-    prune!(v.parent, v.prefix..., prefix...)
+function _shift_branch_indices!(d::StaticDictTree, I::Int)
+    for brd in 1:length(d.branch_lookup)
+        for inds in values(d.branch_lookup[brd])
+            for i in eachindex(inds)
+                if inds[i] > I
+                    inds[i] -= 1
+                end
+            end
+        end
+    end
+end
+
+function delete!(d::StaticDictTree{KT, VT}, key::KT) where {KT, VT}
+    !haskey(d.lookup, key) && return d
+    
+    I = d.lookup[key]
+    
+    # 1. Remove from flat values
+    deleteat!(d.values, I)
+    
+    # 2. Remove from root lookup
+    delete!(d.lookup, key)
+    
+    # 3. Shift all root indices > I
+    for k in keys(d.lookup)
+        if d.lookup[k] > I
+            d.lookup[k] -= 1
+        end
+    end
+    
+    # 4. Remove from branch hierarchy
+    _delete_branches!(d, key, I)
+    
+    # 5. Shift all branch indices > I
+    _shift_branch_indices!(d, I)
+    
+    return d
+end
+
+delete!(v::StaticDictBranch{KT, BRT, VT}, key::BRT) where {KT, BRT, VT} = (delete!(v.parent, (v.prefix..., key...)::KT); v)
+delete!(v::StaticDictBranch{KT, BRT, VT}, key)      where {KT, BRT, VT} = delete!(v, (key,))
+
+
+function prune!(d::StaticDictTree{KT, VT}, prefix::Tuple) where {KT, VT}
+    prd = length(prefix)
+    N = fieldcount(KT)
+    if prd >= N
+        throw(ArgumentError("Prefix length must be less than tree depth. Use delete! for full keys."))
+    end
+    
+    padded_prefix = _pad_dynamic(prefix, d.dummy_key)
+    brd = N - prd
+    
+    if haskey(d.branch_keys[brd], padded_prefix)
+        keys_to_delete = d.branch_keys[brd][padded_prefix]
+        inds_to_delete = d.branch_lookup[brd][padded_prefix]
+        
+        # Sort by index descending! This prevents lower indices from shifting 
+        # while we are still looping through the higher indices.
+        pairs = sort!(collect(zip(inds_to_delete, keys_to_delete)), by=x->x[1], rev=true)
+        
+        for (_, k) in pairs
+            delete!(d, k)
+        end
+    end
+    return d
+end
+
+function prune!(v::StaticDictBranch, prefix::Tuple)
+    prune!(v.parent, (v.prefix..., prefix...))
     return v
 end
 
 
 # ------------------------------------------------------------------------------
-show(io::IO, d::StaticDictTree{TRD, KT, VT}) where {TRD, KT, VT} =
-    print(io, "StaticDictTree{$TRD, $KT, $VT} with $(length(d)) entries")
+# Display Methods
+# ------------------------------------------------------------------------------
 
-show(io::IO, v::StaticDictBranch{TRD, BRD, KT, VT}) where {TRD, BRD, KT, VT} =
-    print(io, "StaticDictBranch{$TRD, $BRD, $KT, $VT} (prefix = $(v.prefix)) with $(length(v)) entries")
+show(io::IO, d::StaticDictTree{KT, VT}) where {KT, VT} =
+    print(io, "StaticDictTree{$KT, $VT} with $(length(d)) entries")
+
+show(io::IO, v::StaticDictBranch{KT, BRT, VT}) where {KT, BRT, VT} =
+    print(io, "StaticDictBranch{$KT, $BRT, $VT} (prefix = $(v.prefix)) with $(length(v)) entries")
 
 function show(io::IO, ::MIME"text/plain", d::AbstractStaticDictTree)
     SEP = " "^4
