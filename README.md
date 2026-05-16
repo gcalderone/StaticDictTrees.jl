@@ -24,18 +24,22 @@ part_mass = SDTree((:Fermion, :Quark, :up)                 => 2.2,
                    (:Boson, :Gauge, :Z)                    => 91187.6,
                    (:Boson, :Scalar, :higgs)               => 125100.0)
 
-leptons = view(part_mass, (:Fermion, :Lepton))
+# Access using the entire key
 println(part_mass[:Fermion, :Lepton, :electron] == leptons[:electron])
+
+# ... or create a view on a branch and use a partial key
+leptons = view(part_mass, (:Fermion, :Lepton))
+println(leptons[:electron])
 ```
 
 
 ## Features
 
-* **Tuple keys:** Support any generic `Tuple` as keys;
+* **Tuple keys:** Support any generic `Tuple` as key;
 * **O(1) everything:** Lookups and insertions are O(1);
 * **Cache-friendly:** All values are stored contiguously in a single flat `Vector`;
 * **Zero-allocation views:** Instantly step into sub-branches without allocating new dictionaries or copying data;
-* **100% compatible with Julia ecosystem:** Fully subtypes `AbstractDict` and integrates seamlessly with `AbstractTrees.jl`;
+* **100% compatible with Julia ecosystem:** Fully implement the `AbstractDict` and `AbstractTrees.jl` interface;
 * **Type Stable:** Natively supports heterogeneous tuple keys (e.g., `Tuple{Int, Symbol, String}`) without type instability.
 
 
@@ -53,7 +57,7 @@ Create a tree by specifying the fixed `Tuple` type for your keys, and the type f
 ```julia
 using StaticDictTrees
 
-# Create a tree with a depth of 3
+# Create an empty tree using `Tuple{Int, Symbol, String}` as key
 dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
 
 # Insert data using standard dictionary syntax
@@ -79,8 +83,7 @@ SDTree (Root)
 
 ## Zero-Allocation Views
 
-Instead of copying data to look at a specific sub-branch, use the `view` function. This creates a lightweight, zero-allocation `SDBranch` (or `SDLeaf`) that holds a direct memory pointer to the parent tree's internal caches.
-
+A view on a `SDTree` is a lightweight, zero-allocation object holding a direct memory pointer to a specific subset of the parent tree's cache.
 ```julia
 # Take a view of everything under `(1, :server)`
 server_view = view(dt, (1, :server))
@@ -92,7 +95,7 @@ dt[1, :server, "latency"]
 8.0
 ```
 
-Views automatically route to the correct type based on the path length:
+Views automatically return the correct type based on the path length:
 * Partial path -> `SDBranch`
 * Full path -> `SDLeaf`
 
@@ -124,16 +127,6 @@ Dict(dt)
 # Get all values as a flat iterator
 values(dt)
 ```
-
-## Under the Hood
-
-Standard nested dictionaries (e.g., `Dict{Int, Dict{Symbol, Float64}}`) suffer from heavy memory fragmentation and pointer-chasing.
-
-`SDTree{KT, VT}` solves this problem using **Data-Oriented Design**:
-1. `keys`: A single `Vector{KT}`.
-2. `values`: A single `Vector{VT}`.
-3. `lookup`: A single flat `Dict{KT, Int}` mapping the full tuple to the array index.
-4. `branch_lookup`: A tuple of optimized dictionaries to track the hierarchical relationships (prefixes to suffixes) using integer indices, enabling instant tree-traversal and visualization without duplicating the data.
 
 
 ## Demonstrating $O(1)$ Scalability
