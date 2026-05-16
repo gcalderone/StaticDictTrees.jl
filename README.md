@@ -13,16 +13,16 @@ Standard nested dictionaries (e.g., `Dict{K, Dict{K, V}}`) suffer from:
 * **Memory Overhead:** Every node is a separate hash table allocation.
 * **Type Instability:** Hard to maintain strict typing across variable depths, especially with mixed key types.
 
-`StaticDictTrees.jl` stores all values in a single flat vector and provides zero-cost `StaticDictBranch` views for sub-tree exploration.
+`StaticDictTrees.jl` stores all values in a single flat vector and provides zero-cost `SDBranch` views for sub-tree exploration.
 
 ### Comparison with `DataStructures.Trie`
 
 While `Trie` (from `DataStructures.jl`) is an excellent data structure, it serves a different core purpose. `StaticDictTrees` offers several distinct architectural advantages for fixed-depth data:
 
-1. **Heterogeneous Keys:** A `Trie{K, V}` requires a homogeneous sequence of keys (e.g., an array of `Char` for strings, or a sequence of strictly `Symbol`s). `StaticDictTree` fully supports mixed types in the path (e.g., `(1, :server, "latency")`).
-2. **O(1) Lookups:** Looking up a deep value in a `Trie` is an **O(L)** operation, requiring `L` separate hash lookups and pointer jumps down the node tree. `StaticDictTree` resolves the entire path in exactly **one** hash lookup (O(1)).
-3. **Contiguous Memory:** `Trie` nodes are scattered across the heap. `StaticDictTree` stores all values contiguously in a single `Vector`, maximizing cache locality.
-4. **Trade-off:** To achieve this performance, `StaticDictTree` requires a **fixed tree depth** determined by the `Tuple` type, whereas a `Trie` gracefully handles highly variable-length sequences.
+1. **Heterogeneous Keys:** A `Trie{K, V}` requires a homogeneous sequence of keys (e.g., an array of `Char` for strings, or a sequence of strictly `Symbol`s). `SDTree` fully supports mixed types in the path (e.g., `(1, :server, "latency")`).
+2. **O(1) Lookups:** Looking up a deep value in a `Trie` is an **O(L)** operation, requiring `L` separate hash lookups and pointer jumps down the node tree. `SDTree` resolves the entire path in exactly **one** hash lookup (O(1)).
+3. **Contiguous Memory:** `Trie` nodes are scattered across the heap. `SDTree` stores all values contiguously in a single `Vector`, maximizing cache locality.
+4. **Trade-off:** To achieve this performance, `SDTree` requires a **fixed tree depth** determined by the `Tuple` type, whereas a `Trie` gracefully handles highly variable-length sequences.
 
 ## Installation
 
@@ -41,23 +41,23 @@ Initialize a tree by specifying a strictly typed `Tuple` for the keys and a type
 using StaticDictTrees
 
 # Tree with depth 3, mixing Int, Symbol, and String keys!
-dt = StaticDictTree((1, :server, "latency") => 12.5,
-                    (1, :server, "uptime")  => 99.9,
-                    (2, :local, "cache")    => 2.1)
+dt = SDTree((1, :server, "latency") => 12.5,
+            (1, :server, "uptime")  => 99.9,
+            (2, :local, "cache")    => 2.1)
 ```
 
 ### Branching and Chaining (Views)
 
-`StaticDictBranch` provides a type-stable view into a sub-tree without memory reallocation. You must provide the prefix as a `Tuple`. You can also chain branches together—they safely collapse down to the root parent automatically.
+`SDBranch` provides a type-stable view into a sub-tree without memory reallocation. You must provide the prefix as a `Tuple`. You can also chain branches together—they safely collapse down to the root parent automatically.
 
 ```julia
 # Branch from the root
-server_view = StaticDictBranch(dt, (1, :server))
+server_view = SDBranch(dt, (1, :server))
 println(server_view[("latency",)]) # 12.5
 
 # Branch from another branch
-root_view = StaticDictBranch(dt, (1,))
-db_view = StaticDictBranch(root_view, (:server,))
+root_view = SDBranch(dt, (1,))
+db_view = SDBranch(root_view, (:server,))
 
 db_view["uptime"] = 100.0 # Mutates the underlying root tree!
 ```
@@ -84,11 +84,11 @@ prune!(root_view, (:server,))
 `StaticDictTrees.jl` fully supports Julia's standard dictionary interface.
 
 ```julia
-dt = StaticDictTree{Tuple{Int, Symbol, String}, Float64}()
+dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
 dt[(1, :server, "latency")] = 12.5
 dt[(1, :server, "uptime")] = 99.9
 
-server_view = StaticDictBranch(dt, (1, :server))
+server_view = SDBranch(dt, (1, :server))
 
 # Iteration yields `key => value` in insertion order.
 for (k, v) in server_view
