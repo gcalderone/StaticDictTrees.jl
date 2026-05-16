@@ -1,13 +1,41 @@
 # StaticDictTrees.jl
 
-**StaticDictTrees.jl** maps fixed-length `Tuple` keys to values, just like a standard `Dict` would, with the additional capability of providing zero-allocation, hierarchical views over the underlying data.  It combines the ergonomics of a multi-level tree structure with the performance and type stability of a flat 1-dimensional vector.
+**StaticDictTrees.jl** maps fixed-length `Tuple` keys to values, just like a standard `Dict` would, with the additional capability of providing tree-like views on a subset identified by providing only a part of the original tuple used as key.
+
+```julia
+using StaticDictTrees
+
+# Create a SDTree representing the mass of elementary particles
+part_mass = SDTree((:Fermion, :Quark, :up)                 => 2.2,
+                   (:Fermion, :Quark, :down)               => 4.7,
+                   (:Fermion, :Quark, :strange)            => 96.0,
+                   (:Fermion, :Quark, :charm)              => 1270.0,
+                   (:Fermion, :Quark, :bottom)             => 4180.0,
+                   (:Fermion, :Quark, :top)                => 172760.0,
+                   (:Fermion, :Lepton, :electron)          => 0.510998,
+                   (:Fermion, :Lepton, :muon)              => 105.658,
+                   (:Fermion, :Lepton, :tau)               => 1776.86,
+                   (:Fermion, :Lepton, :electron_neutrino) => 0.0, # exact values are unknown
+                   (:Fermion, :Lepton, :muon_neutrino)     => 0.0,
+                   (:Fermion, :Lepton, :tau_neutrino)      => 0.0,
+                   (:Boson, :Gauge, :photon)               => 0.0,
+                   (:Boson, :Gauge, :gluon)                => 0.0,
+                   (:Boson, :Gauge, :W)                    => 80377.0,
+                   (:Boson, :Gauge, :Z)                    => 91187.6,
+                   (:Boson, :Scalar, :higgs)               => 125100.0)
+
+leptons = view(part_mass, (:Fermion, :Lepton))
+println(part_mass[:Fermion, :Lepton, :electron] == leptons[:electron])
+```
+
 
 ## Features
 
-* **O(1) everything:** Lookups and insertions are O(1) by hashing the full tuple path.
-* **Cache-friendly:** All values are stored contiguously in a single flat `Vector`.
-* **Zero-allocation views:** Instantly step into sub-branches without allocating new dictionaries or copying data.
-* **100% compatible with Julia ecosystem:** Fully subtypes `AbstractDict` and integrates seamlessly with `AbstractTrees.jl`.
+* **Tuple keys:** Support any generic `Tuple` as keys;
+* **O(1) everything:** Lookups and insertions are O(1);
+* **Cache-friendly:** All values are stored contiguously in a single flat `Vector`;
+* **Zero-allocation views:** Instantly step into sub-branches without allocating new dictionaries or copying data;
+* **100% compatible with Julia ecosystem:** Fully subtypes `AbstractDict` and integrates seamlessly with `AbstractTrees.jl`;
 * **Type Stable:** Natively supports heterogeneous tuple keys (e.g., `Tuple{Int, Symbol, String}`) without type instability.
 
 
@@ -85,7 +113,7 @@ prune!(dt, (2, :local, "cache"))
 Because `AbstractSDTree <: AbstractDict`, it works perfectly with Julia's standard library.
 
 ```julia
-# Iterate over all leaves
+# Iterate over all leaves in the same order they were inserted
 for (key, val) in dt
     println("Path: $key, Value: $val")
 end
@@ -101,11 +129,11 @@ values(dt)
 
 Standard nested dictionaries (e.g., `Dict{Int, Dict{Symbol, Float64}}`) suffer from heavy memory fragmentation and pointer-chasing.
 
-`SDTree` solves this using **Data-Oriented Design**:
+`SDTree{KT, VT}` solves this problem using **Data-Oriented Design**:
 1. `keys`: A single `Vector{KT}`.
 2. `values`: A single `Vector{VT}`.
 3. `lookup`: A single flat `Dict{KT, Int}` mapping the full tuple to the array index.
-4. `branch_lookup`: A tuple of highly optimized dictionaries that track the hierarchical relationships (prefixes to suffixes) purely using integer indices, enabling instant tree-traversal and visualization without duplicating your actual data.
+4. `branch_lookup`: A tuple of optimized dictionaries to track the hierarchical relationships (prefixes to suffixes) using integer indices, enabling instant tree-traversal and visualization without duplicating the data.
 
 
 ## Demonstrating $O(1)$ Scalability
