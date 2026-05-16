@@ -2,8 +2,8 @@ module StaticDictTrees
 
 using DataStructures
 
-import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, delete!
-export AbstractSDTree, SDTree, SDBranch, prune!, is_leaf_level
+import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, delete!, view
+export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth
 
 #=
 Conventions:
@@ -75,6 +75,8 @@ keys(  d::SDTree) = d.keys
 values(d::SDTree) = d.values
 length(d::SDTree) = length(d.values)
 haskey(d::SDTree{KT, VT}, key::KT) where {KT, VT} = haskey(d.lookup, key)
+depth( d::SDTree{KT, VT}) where {KT, VT} = fieldcount(KT)
+is_leaf_level(::SDTree{KT}) where {KT <: Tuple} = fieldcount(KT) == 1
 
 """
     parent(d::SDTree)
@@ -94,7 +96,6 @@ end
 
 getindex(d::SDTree{KT, VT}, key::KT) where {KT, VT} = d.values[d.lookup[key]]
 getindex(d::SDTree{KT, VT}, key) where {KT, VT} = getindex(d, (key,))
-
 
 # Insertion logic
 @generated function populate_branch_lookup!(d::SDTree{KT}, key::KT, I::Int) where {KT <: Tuple}
@@ -155,7 +156,6 @@ A `SDBranch` holds a direct memory pointer to the parent tree's internal caches.
 struct SDBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractSDTree{ST, VT}
     parent::SDTree{KT, VT}
     prefix::PT
-    depth::Int
     node::OrderedDict{ST, Int}
 
     function SDBranch(d::SDTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
@@ -169,7 +169,7 @@ struct SDBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractSDTree{ST, VT}
             throw(KeyError(prefix))
         end
         node = lookup[prefix]::OrderedDict{ST, Int}
-        return new{KT, PT, ST, VT}(d, prefix, depth, node)
+        return new{KT, PT, ST, VT}(d, prefix, node)
     end
 end
 
@@ -186,9 +186,11 @@ keys(  v::SDBranch) = keys(v.node)
 values(v::SDBranch) = (v.parent.values[i] for i in values(v.node))
 length(v::SDBranch) = length(v.node)
 haskey(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = haskey(v.node, key)
+depth( d::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = fieldcount(PT)
+is_leaf_level(::SDBranch{KT, PT, ST}) where {KT, PT, ST <: Tuple} = fieldcount(ST) == 1
 
 function parent(v::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT}
-    (v.depth == 1) && return v.parent
+    (fieldcount(PT) == 1) && return v.parent
     return SDBranch(v.parent, v.prefix[1:(end-1)])
 end
 
@@ -206,6 +208,90 @@ getindex(v::SDBranch{KT, PT, ST, VT}, key)     where {KT, PT, ST, VT} = getindex
 setindex!(v::SDBranch{KT, PT, ST, VT}, value, key::ST) where {KT, PT, ST, VT} = (v.parent[(v.prefix..., key...)] = value; value)
 setindex!(v::SDBranch{KT, PT, ST, VT}, value, key)     where {KT, PT, ST, VT} = setindex!(v, value, (key,))
 
+
+# ------------------------------------------------------------------------------
+# SDLeaf structure
+# ------------------------------------------------------------------------------
+struct SDLeaf{KT, VT} <: AbstractSDTree{KT, VT}
+    parent::SDTree{KT, VT}
+    key::KT
+
+    SDLeaf(d::SDTree{KT, VT}, key::KT) where {KT, VT} = new{KT, VT}(d, key)
+    SDLeaf(v::SDBranch{KT, PT, ST, VT}, suffix::ST) where {KT, PT, ST, VT} = new{KT, VT}(v.parent, (v.prefix..., suffix...))
+end
+
+function empty!(v::SDLeaf)
+    delete!(v.parent, v.key)
+    return nothing
+end
+
+keys(  v::SDLeaf) = [v.key]
+values(v::SDLeaf) = [v.parent[v.key]]
+length(v::SDLeaf) = 1
+haskey(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = (v.key == key)
+depth( v::SDLeaf{KT, VT}) where {KT, VT} = fieldcount(KT)
+is_leaf_level(::SDLeaf) = true
+
+function parent(v::SDLeaf{KT, VT}) where {KT, VT}
+    (fieldcount(KT) == 1) && return v.parent
+    return SDBranch(v.parent, v.key[1:(end-1)])
+end
+
+function iterate(v::SDLeaf, state=nothing)
+    isnothing(state)  &&  (return (v.key => v.parent[v.key], 1))
+    return nothing
+end
+
+getindex(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = (@assert v.key == key; v.parent[v.key])
+getindex(v::SDLeaf{KT, VT}, key)     where {KT, VT} = getindex(v, (key,))
+
+setindex!(v::SDLeaf{KT, VT}, value, key::KT) where {KT, VT} = (@assert v.key == key; v.parent[v.key] = value; value)
+setindex!(v::SDLeaf{KT, VT}, value, key)     where {KT, VT} = setindex!(v, value, (key,))
+
+
+# ------------------------------------------------------------------------------
+# View Integration
+# ------------------------------------------------------------------------------
+"""
+    view(d::SDTree, prefix::Tuple)
+    view(v::SDBranch, suffix::Tuple)
+    view(tree_or_branch, key)
+
+Creates a lightweight, non-allocating view into the tree.
+
+Depending on the length of the provided path, it automatically returns either a
+`SDBranch` (if the path is shorter than the remaining tree depth) or a `SDLeaf`
+(if the path completes the full key).
+"""
+function view(d::SDTree{KT, VT}, prefix::Tuple) where {KT <: Tuple, VT}
+    N = fieldcount(KT)
+    L = length(prefix)
+
+    if L < N
+        return SDBranch(d, prefix)
+    elseif L == N
+        # We use `convert` to ensure the tuple exactly matches KT before making the leaf
+        return SDLeaf(d, convert(KT, prefix))
+    else
+        throw(ArgumentError("Prefix length ($L) exceeds tree depth ($N)."))
+    end
+end
+view(d::SDTree, key) = view(d, (key,))
+
+function view(v::SDBranch{KT, PT, ST, VT}, suffix::Tuple) where {KT, PT, ST, VT}
+    N = fieldcount(KT)
+    full_prefix = (v.prefix..., suffix...)
+    L = length(full_prefix)
+
+    if L < N
+        return SDBranch(v.parent, full_prefix)
+    elseif L == N
+        return SDLeaf(v.parent, convert(KT, full_prefix))
+    else
+        throw(ArgumentError("Combined prefix length ($L) exceeds tree depth ($N)."))
+    end
+end
+view(v::SDBranch, key) = view(v, (key,))
 
 # ------------------------------------------------------------------------------
 # Deletion and pruning logic
@@ -303,20 +389,12 @@ end
 # AbstractTrees.jl Integration
 # ------------------------------------------------------------------------------
 
-is_leaf_level(::SDTree{  KT})         where {KT <: Tuple}         = fieldcount(KT) == 1
-is_leaf_level(::SDBranch{KT, PT, ST}) where {KT, PT, ST <: Tuple} = fieldcount(ST) == 1
-
 using AbstractTrees
 import AbstractTrees: children, printnode
 
-struct Leaf{K, V}
-    key::K
-    value::V
-end
-
 function children(d::SDTree{KT}) where {KT <: Tuple}
     if is_leaf_level(d)
-        return [Leaf(k[1], v) for (k, v) in d]
+        return [SDLeaf(d, k) for (k, v) in d]
     else
         return [SDBranch(d, p) for p in keys(d.branch_lookup[1])]
     end
@@ -324,16 +402,18 @@ end
 
 function children(v::SDBranch{KT}) where {KT <: Tuple}
     if is_leaf_level(v)
-        return [Leaf(k[1], v.parent.values[idx]) for (k, idx) in v.node]
+        return [SDLeaf(v.parent, (v.prefix..., k...)) for (k, idx) in v.node]
     else
         unique_next_steps = unique(k[1] for k in keys(v.node))
         return [SDBranch(v.parent, (v.prefix..., step)) for step in unique_next_steps]
     end
 end
 
+children(::SDLeaf) = ()
+
 printnode(io::IO, d::SDTree) = print(io, "SDTree (Root)")
 printnode(io::IO, v::SDBranch) = print(io, repr(v.prefix[end]))
-printnode(io::IO, e::Leaf) = print(io, repr(e.key), " => ", repr(e.value))
+printnode(io::IO, e::SDLeaf) = print(io, repr(e.key[end]), " => ", repr(e[e.key]))
 
 
 # ------------------------------------------------------------------------------
@@ -360,4 +440,4 @@ function Base.show(io::IO, ::MIME"text/plain", d::AbstractSDTree)
     print_tree(io, d)
 end
 
-end # module SDTrees
+end # module AbstractStaticTrees
