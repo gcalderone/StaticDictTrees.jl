@@ -405,16 +405,16 @@ function children(d::SDTree{KT}) where {KT <: Tuple}
     if is_leaf_level(d)
         return [SDLeaf(d, k) for (k, v) in d]
     else
-        return [SDBranch(d, p) for p in keys(d.branch_lookup[1])]
+        return [SDBranch(d, p) for p in sort(collect(keys(d.branch_lookup[1])))]
     end
 end
 
 function children(v::SDBranch{KT}) where {KT <: Tuple}
     if is_leaf_level(v)
-        return [SDLeaf(v.parent, (v.prefix..., k...)) for (k, idx) in v.node]
+        return [SDLeaf(v.parent, (v.prefix..., k...)) for k in sort(collect(keys(v.node)))]
     else
         unique_next_steps = unique(k[1] for k in keys(v.node))
-        return [SDBranch(v.parent, (v.prefix..., step)) for step in unique_next_steps]
+        return [SDBranch(v.parent, (v.prefix..., step)) for step in sort(unique_next_steps)]
     end
 end
 
