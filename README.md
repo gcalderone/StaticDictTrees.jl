@@ -61,7 +61,7 @@ server_view = view(dt, (1, :server))
 # Mutating the view mutates the underlying flat array
 server_view["latency"] = 8.0 
 
-julia> dt[1, :server, "latency"]
+dt[1, :server, "latency"]
 8.0
 ```
 
@@ -107,3 +107,8 @@ Standard nested dictionaries (e.g., `Dict{Int, Dict{Symbol, Float64}}`) suffer f
 2. `values`: A single `Vector{VT}`.
 3. `lookup`: A single flat `Dict{KT, Int}` mapping the full tuple to the array index.
 4. `branch_lookup`: A tuple of highly optimized dictionaries that track the hierarchical relationships (prefixes to suffixes) purely using integer indices, enabling instant tree-traversal and visualization without duplicating your actual data.
+
+
+## Disclaimer
+
+This package was developed with the assistance of AI (Gemini), but all code has been manually reviewed and tested for type stability and correctness by the author.
