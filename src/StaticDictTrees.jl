@@ -276,7 +276,7 @@ function view(d::SDTree{KT, VT}, prefix::Tuple) where {KT <: Tuple, VT}
         throw(ArgumentError("Prefix length ($L) exceeds tree depth ($N)."))
     end
 end
-view(d::SDTree, key) = view(d, (key,))
+view(d::SDTree{KT, VT}, key) where {KT, VT} = view(d, (key,))
 
 function view(v::SDBranch{KT, PT, ST, VT}, suffix::Tuple) where {KT, PT, ST, VT}
     N = fieldcount(KT)
@@ -291,7 +291,7 @@ function view(v::SDBranch{KT, PT, ST, VT}, suffix::Tuple) where {KT, PT, ST, VT}
         throw(ArgumentError("Combined prefix length ($L) exceeds tree depth ($N)."))
     end
 end
-view(v::SDBranch, key) = view(v, (key,))
+view(v::SDBranch{KT, PT, ST, VT}, key) where {KT, PT, ST, VT} = view(v, (key,))
 
 # ------------------------------------------------------------------------------
 # Deletion and pruning logic
@@ -346,31 +346,37 @@ end
 
 delete!(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = delete!(v.parent, (v.prefix..., key...))
 
-"""
-    prune!(d::SDTree, prefix::Tuple)
-    prune!(v::SDBranch, prefix::Tuple)
 
-Removes an entire branch (identified by `prefix`) and all of its associated leaves from the tree.
-
-This safely orchestrates the deletion of multiple leaves, ensuring internal memory indices and branch caches are properly shifted and maintained.
 """
-function prune!(d::SDTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
-    depth = fieldcount(PT)
+    prune!(d::SDTree, path::Tuple)
+    prune!(v::SDBranch, path::Tuple)
+
+Removes an entire branch (identified by `path`) and all of its associated leaves from the tree.
+If the `path` provided is a full key, it gracefully deletes just that specific leaf.
+"""
+function prune!(d::SDTree{KT, VT}, path::Tuple) where {KT <: Tuple, VT}
+    L = length(path)
     N = fieldcount(KT)
-    if depth >= N
-        throw(ArgumentError("Prefix length must be less than tree depth. Use delete! for full keys."))
+
+    if L > N
+        throw(ArgumentError("Path length ($L) exceeds tree depth ($N)."))
+    elseif L == N
+        # It's a full key! Delegate to the standard AbstractDict delete! method
+        return delete!(d, convert(KT, path))
     end
 
-    ST = Tuple{fieldtypes(KT)[depth+1:end]...}
-    lookup = d.branch_lookup[depth]::Dict{PT, OrderedDict{ST, Int}}
+    # It's a true prefix, perform the standard pruning logic
+    PT = typeof(path)
+    ST = Tuple{fieldtypes(KT)[L+1:end]...}
+    lookup = d.branch_lookup[L]::Dict{PT, OrderedDict{ST, Int}}
 
-    if haskey(lookup, prefix)
-        inner_dict = lookup[prefix]
+    if haskey(lookup, path)
+        inner_dict = lookup[path]
 
         inds_to_delete = collect(values(inner_dict))
         keys_to_delete = [d.keys[i] for i in inds_to_delete]
 
-
+        # Delete in reverse index order to prevent index shifting from messing up the loop
         pairs = sort!(collect(zip(inds_to_delete, keys_to_delete)), by=x->x[1], rev=true)
         for (_, k) in pairs
             delete!(d, k)
@@ -379,10 +385,13 @@ function prune!(d::SDTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
     return d
 end
 
-function prune!(v::SDBranch, prefix::Tuple)
-    prune!(v.parent, (v.prefix..., prefix...))
+function prune!(v::SDBranch, path::Tuple)
+    prune!(v.parent, (v.prefix..., path...))
     return v
 end
+
+# Fallback for single elements (e.g., prune!(dt, :server))
+prune!(d::AbstractSDTree, key) = prune!(d, (key,))
 
 
 # ------------------------------------------------------------------------------

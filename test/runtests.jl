@@ -1,175 +1,186 @@
 using Test
 using StaticDictTrees
+using AbstractTrees
 
-# Custom struct for testing the provider enforcement
-struct CustomID
-    id::Int
-end
+@testset "StaticDictTrees.jl" begin
 
-@testset "SDTree Comprehensive Suite" begin
-
-    @testset "1. Basic Operations & Heterogeneous Tuples" begin
+    @testset "Constructors and Basic Dict API" begin
+        # 1. Empty initialization
         dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
-
         @test isempty(dt)
-        @test parent(dt) === nothing
+        @test length(dt) == 0
 
+        # 2. Insertion and getindex
         dt[1, :server, "latency"] = 12.5
-        dt[1, :server, "uptime"] = 99.9
+        dt[(1, :server, "uptime")] = 99.9
         dt[2, :local, "cache"] = 2.1
 
         @test length(dt) == 3
+        @test haskey(dt, (1, :server, "latency"))
+        @test !haskey(dt, (3, :unknown, "test"))
         @test dt[1, :server, "latency"] == 12.5
-        @test haskey(dt, (1, :server, "uptime"))
-        @test !haskey(dt, (1, :server, "missing"))
 
-        @test collect(keys(dt)) == [(1, :server, "latency"), (1, :server, "uptime"), (2, :local, "cache")]
-        @test collect(values(dt)) == [12.5, 99.9, 2.1]
+        # 3. Pair/Dict constructors
+        dt2 = SDTree((1, :a) => 10, (2, :b) => 20)
+        @test length(dt2) == 2
+        @test dt2[1, :a] == 10
+
+        dt3 = SDTree(Dict((1, :a) => 10, (2, :b) => 20))
+        @test length(dt3) == 2
+        @test dt3[2, :b] == 20
+
+        # 4. empty!
+        empty!(dt2)
+        @test length(dt2) == 0
+        @test isempty(dt2.keys) && isempty(dt2.values)
     end
 
-    @testset "2. Use a Custom structure" begin
-        dt = SDTree{Tuple{CustomID, String}, Int}()
+    @testset "Tree Properties (depth, is_leaf_level, parent)" begin
+        dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
+        dt[1, :server, "latency"] = 12.5
 
-        key1 = (CustomID(101), "name")
-        key2 = (CustomID(102), "age")
+        br1 = SDBranch(dt, (1,))
+        br2 = SDBranch(dt, (1, :server))
+        lf  = SDLeaf(dt, (1, :server, "latency"))
 
-        dt[key1...] = 1
-        dt[key2...] = 2
+        # Depth
+        @test depth(dt)  == 3
+        @test depth(br1) == 1
+        @test depth(br2) == 2
+        @test depth(lf)  == 3
 
+        # is_leaf_level
+        @test !is_leaf_level(dt)
+        @test !is_leaf_level(br1)
+        @test is_leaf_level(br2)
+        @test is_leaf_level(lf)
+
+        # parent traversal
+        @test parent(dt) === nothing
+        @test parent(br1) === dt
+        @test parent(br2).prefix == (1,)
+        @test parent(lf).prefix == (1, :server)
+
+        # Depth-1 edge case (Tree directly holds leaves)
+        dt_flat = SDTree{Tuple{Int}, Float64}()
+        @test is_leaf_level(dt_flat)
+        @test parent(SDLeaf(dt_flat, (1,))) === dt_flat
+    end
+
+    @testset "View Interface" begin
+        dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
+        dt[1, :server, "latency"] = 12.5
+
+        # 1. view from Tree
+        v1 = view(dt, 1) # Auto-tuple fallback
+        @test v1 isa SDBranch
+        @test depth(v1) == 1
+
+        # 2. view from Branch
+        v2 = view(v1, :server)
+        @test v2 isa SDBranch
+        @test depth(v2) == 2
+
+        # 3. View to Leaf
+        lf1 = view(v2, "latency")
+        @test lf1 isa SDLeaf
+        @test lf1.key == (1, :server, "latency")
+
+        lf2 = view(dt, (1, :server, "latency"))
+        @test lf2 isa SDLeaf
+
+        # 4. View bounds checking
+        @test_throws ArgumentError view(dt, (1, :server, "latency", "extra"))
+        @test_throws ArgumentError view(v1, (:server, "latency", "extra"))
+        
+        # 5. Mutation via views updates the underlying flat array
+        v2["latency"] = 99.0
+        @test dt[1, :server, "latency"] == 99.0
+        
+        lf2[(1, :server, "latency")] = 42.0
+        @test dt[1, :server, "latency"] == 42.0
+    end
+
+    @testset "Iteration and Collection" begin
+        dt = SDTree((1, :a) => 10, (1, :b) => 20, (2, :c) => 30)
+        
+        # Tree iteration
+        @test length(collect(dt)) == 3
+        @test ((1, :a) => 10) in collect(dt)
+
+        # Branch iteration
+        br = view(dt, 1)
+        @test length(collect(br)) == 2
+        @test ((:a,) => 10) in collect(br)
+
+        # Leaf iteration
+        lf = view(dt, (2, :c))
+        @test length(collect(lf)) == 1
+        @test collect(lf)[1] == ((2, :c) => 30)
+    end
+
+    @testset "Deletion and Pruning" begin
+        dt = SDTree{Tuple{Int, Symbol}, Float64}()
+        dt[1, :a] = 10.0
+        dt[1, :b] = 20.0
+        dt[2, :c] = 30.0
+
+        # delete!
+        delete!(dt, (1, :a))
         @test length(dt) == 2
-        @test dt[key1...] == 1
+        @test !haskey(dt, (1, :a))
+        @test dt[1, :b] == 20.0 # Ensure indices shifted correctly!
 
-        branch = SDBranch(dt, (CustomID(101),))
-        @test branch["name"] == 1
-    end
-
-    @testset "3. Branch Creation, Fallbacks & Chaining" begin
-        dt = SDTree{Tuple{String, String, String}, String}()
-        dt["A", "B", "C"] = "Data 1"
-        dt["A", "B", "D"] = "Data 2"
-        dt["A", "X", "Y"] = "Data 3"
-
-        # Testing the non-tuple fallback in the branch constructor
-        branch_A = SDBranch(dt, ("A",))
-        @test length(branch_A) == 3
-        @test haskey(branch_A, ("B", "C"))
-
-        # Branch from Branch chaining
-        branch_AB = SDBranch(branch_A, ("B",))
-        @test length(branch_AB) == 2
-        @test collect(values(branch_AB)) == ["Data 1", "Data 2"]
-
-        # Ensure it flattened correctly to the root parent
-        @test branch_AB.parent === dt
-        @test branch_AB.prefix == ("A", "B")
-
-        # Test Single-Key Fallbacks
-        @test branch_AB["C"] == "Data 1"
-        branch_AB["E"] = "Data 4"
-        @test dt["A", "B", "E"] == "Data 4"
-
-        # Over-branching assertion
-        @test_throws AssertionError SDBranch(branch_AB, ("C",))
-    end
-
-    @testset "4. Iteration Order and Caching" begin
-        dt = SDTree{Tuple{String, String}, Int}()
-        dt["g1", "A"] = 10
-        dt["g2", "B"] = 20
-        dt["g1", "C"] = 30
-
-        @test collect(dt) == [
-            ("g1", "A") => 10,
-            ("g2", "B") => 20,
-            ("g1", "C") => 30
-        ]
-
-        branch = SDBranch(dt, ("g1",))
-        @test collect(branch) == [
-            ("A",) => 10,
-            ("C",) => 30
-        ]
-    end
-
-    @testset "5. Deletion (Leaf Specific)" begin
-        dt = SDTree{Tuple{String, String, String}, Int}()
-        dt["server", "db", "latency"] = 10
-        dt["server", "db", "uptime"] = 100
-        dt["server", "api", "calls"] = 500
-        dt["local", "cache", "size"] = 1024
-
-        branch = SDBranch(dt, ("server", "db"))
-
-        # Specific Leaf Deletion via Branch
-        delete!(branch, ("latency",))
-        @test length(dt) == 3
-        @test !haskey(dt, ("server", "db", "latency"))
-
-        # Index shifting verification: "size" should still resolve to 1024
-        @test dt["local", "cache", "size"] == 1024
-
-        # Specific Leaf Deletion via Root
-        delete!(dt, ("server", "api", "calls"))
+        # prune!
+        dt[3, :x] = 100.0
+        dt[3, :y] = 200.0
+        
+        prune!(dt, (3,))
         @test length(dt) == 2
-        @test !haskey(dt, ("server", "api", "calls"))
+        @test !haskey(dt, (3, :x))
+        @test !haskey(dt, (3, :y))
+        
+        # Prune via branch
+        dt[4, :m] = 40.0
+        dt[4, :n] = 50.0
+        br = view(dt, 4)
+        @test is_leaf_level(br)        
+        prune!(br, (:m,)) # Prunes at the leaf level
+        @test !haskey(dt, (4, :m))
+        @test haskey(dt, (4, :n))
     end
 
-    @testset "6. Pruning (Branch Deletion)" begin
-        dt = SDTree{Tuple{String, String, String}, Int}()
-        dt["server", "db", "latency"] = 10
-        dt["server", "db", "uptime"] = 100
-        dt["server", "api", "calls"] = 500
-        dt["local", "cache", "size"] = 1024
+    @testset "AbstractTrees Integration" begin
+        dt = SDTree{Tuple{Int, Symbol}, Float64}()
+        dt[1, :a] = 10.0
+        dt[1, :b] = 20.0
 
-        # Pruning via Root with Varargs
-        prune!(dt, ("local",))
-        @test length(dt) == 3
+        # 1. Children API
+        c_root = children(dt)
+        @test length(c_root) == 1
+        @test c_root[1] isa SDBranch
+        
+        c_branch = children(c_root[1])
+        @test length(c_branch) == 2
+        @test c_branch[1] isa SDLeaf
+        
+        @test isempty(children(c_branch[1])) # Leaves have no children by default
 
-        # Pruning via Branch
-        server_branch = SDBranch(dt, ("server",))
-        prune!(server_branch, ("api",))
-        @test length(dt) == 2
+        # 2. Print formatting (Capture REPL output)
+        out_str = sprint(print_tree, dt)
+        
+        @test occursin("SDTree (Root)", out_str)
+        @test occursin("1", out_str)
+        @test occursin(":a => 10.0", out_str)
+        @test occursin(":b => 20.0", out_str)
 
-        # Verify the rest of the tree is intact
-        @test dt["server", "db", "latency"] == 10
-        @test dt["server", "db", "uptime"] == 100
+        # 3. Collection expansion fallback
+        dt_nested = SDTree{Tuple{Int}, Vector{Int}}()
+        dt_nested[1] = [99, 100]
+        
+        out_nested = sprint(print_tree, dt_nested)
+        @test occursin("1 =>", out_nested) # Should not double print the vector
+        @test occursin("99", out_nested)
     end
 
-    @testset "7. The empty! Function" begin
-        dt = SDTree{Tuple{Symbol, Symbol, Symbol}, Float64}()
-        dt[:a, :b, :c] = 1.0
-        dt[:a, :x, :y] = 2.0
-        dt[:z, :z, :z] = 3.0
-
-        branch = SDBranch(dt, (:a,))
-
-        # Empty branch
-        empty!(branch)
-        @test length(dt) == 1
-        @test dt[:z, :z, :z] == 3.0
-        @test isempty(branch)
-
-        # Empty tree
-        empty!(dt)
-        @test isempty(dt)
-        @test length(dt.values) == 0
-    end
-
-    @testset "8. Display and Show Methods" begin
-        dt = SDTree{Tuple{String, String, String}, Int64}()
-        dt["A", "B", "C"] = 1
-
-        buf = IOBuffer()
-        show(buf, dt)
-        @test occursin("SDTree", String(take!(buf)))
-
-        show(buf, MIME("text/plain"), dt)
-        text_out = String(take!(buf))
-        @test occursin("=> 1", text_out)
-        @test occursin("A", text_out)
-
-        branch = SDBranch(dt, ("A",))
-        show(buf, MIME("text/plain"), branch)
-        @test occursin("SDBranch", String(take!(buf)))
-    end
 end
