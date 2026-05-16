@@ -23,7 +23,6 @@ abstract type AbstractStaticDictTree{KT <: Tuple, VT} <: AbstractDict{KT, VT} en
 # ------------------------------------------------------------------------------
 # StaticDictTree structure
 # ------------------------------------------------------------------------------
-
 """
     StaticDictTree{KT <: Tuple, VT}()
     StaticDictTree(d::AbstractDict{KT, VT})
@@ -110,7 +109,6 @@ getindex(d::StaticDictTree{KT, VT}, key) where {KT, VT} = getindex(d, (key,))
             prefix = $(Expr(:tuple, [:(key[$i]) for i in 1:depth]...))::$prefix_type
             suffix = $(Expr(:tuple, [:(key[$i]) for i in (depth+1):N]...))::$branch_type
 
-            # The Type Assertion restores perfect compiler stability!
             lookup_dict = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
             node = get(lookup_dict, prefix, nothing)
 
@@ -144,7 +142,6 @@ setindex!(d::StaticDictTree{KT, VT}, value, key) where {KT, VT} = setindex!(d, v
 # ------------------------------------------------------------------------------
 # StaticDictBranch structure
 # ------------------------------------------------------------------------------
-
 """
     StaticDictBranch(d::StaticDictTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
 
@@ -213,7 +210,6 @@ setindex!(v::StaticDictBranch{KT, PT, ST, VT}, value, key)     where {KT, PT, ST
 # ------------------------------------------------------------------------------
 # Deletion and pruning logic
 # ------------------------------------------------------------------------------
-
 """
     delete!(d::StaticDictTree{KT, VT}, key::KT)
     delete!(v::StaticDictBranch, key::ST)
@@ -335,25 +331,9 @@ function children(v::StaticDictBranch{KT}) where {KT <: Tuple}
     end
 end
 
-function children(e::Leaf{K, V}) where {K, V}
-    c = children(e.value)
-    if !isempty(c)  # It's a collection (like Dict, Array), return its children directly to bypass the redundant node!
-        return c
-    end
-    return ()
-end
-
 printnode(io::IO, d::StaticDictTree) = print(io, "StaticDictTree (Root)")
 printnode(io::IO, v::StaticDictBranch) = print(io, repr(v.prefix[end]))
-
-function printnode(io::IO, e::Leaf{K, V}) where {K, V}
-    c = children(e.value)
-    if !isempty(c)
-        print(io, repr(e.key), " => ", summary(e.value))
-    else
-        print(io, repr(e.key), " => ", repr(e.value))
-    end
-end
+printnode(io::IO, e::Leaf) = print(io, repr(e.key), " => ", repr(e.value))
 
 
 # ------------------------------------------------------------------------------
