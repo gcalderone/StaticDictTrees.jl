@@ -25,12 +25,15 @@ part_mass = SDTree((:Fermion, :Quark, :up)                 => 2.2,
                    (:Boson, :Scalar, :higgs)               => 125100.0)
 
 # Access using the entire key
-println(part_mass[:Fermion, :Lepton, :electron] == leptons[:electron])
+println(part_mass[:Fermion, :Lepton, :electron])
 
 # ... or create a view on a branch and use a partial key
 leptons = view(part_mass, (:Fermion, :Lepton))
 println(leptons[:electron])
 ```
+
+The functionality provided by `SDTree` is similar to the one provided by a sparse matrix, but it uses a generic `Tuple` as key rather than a tuple of positive integers.  Also, the functionality is identical to that of a `Dict`, with the possibility to use partial keys.  Finally, it allows users to represent a (constant depth) data tree and to walk it sequentially.
+
 
 
 ## Features
@@ -135,7 +138,7 @@ True $O(1)$ complexity means that operations remain constant regardless of the d
 
 `SDTree` hashes the full tuple path directly to a single, flat, array index, therefore its retrieval and insertion times are completely decoupled from the number of elements in the tree.
 
-The `test/check_performance.jl` script allows to measure performance of `SDTree` (and compare them to the standard `Dict`) when dealing with a N=1,000 and N=1,000,000 datasets:
+The `test/check_performance.jl` script allows you to measure the performance of `SDTree` (and compare them to the standard `Dict`) when dealing with a N=1,000 and N=1,000,000 datasets:
 ```
 julia> include("test/check_performance.jl")
 --- Generate small (N=1,000) and large (N=1,000,000) datasets ---
