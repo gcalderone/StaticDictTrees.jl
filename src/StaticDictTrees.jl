@@ -330,6 +330,10 @@ function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
         lookup_dict = d.branch_lookup[depth]
         if haskey(lookup_dict, prefix)
             delete!(lookup_dict[prefix], suffix)
+
+            if isempty(lookup_dict[prefix])
+                delete!(lookup_dict, prefix)
+            end
         end
     end
     for lookup_dict in d.branch_lookup

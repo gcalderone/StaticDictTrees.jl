@@ -83,7 +83,7 @@ v = view(part_mass, (:Fermion, :Lepton))
 v[:electron_neutrino] = NaN
 
 part_mass[:Fermion, :Lepton, :electron_neutrino]
-NaN
+# NaN
 ```
 
 
@@ -112,7 +112,7 @@ length(part_mass)
 Also, `StaticDictTrees.jl` implements the `AbstractTrees.jl` interface hence typing `dt` in the REPL instantly visualizes your data:
 
 ```julia
-julia> dt
+julia> part_mass
 SDTree{Tuple{Int64, Symbol, String}, Float64} with 3 entries:
 SDTree (Root)
 ├─ 1
