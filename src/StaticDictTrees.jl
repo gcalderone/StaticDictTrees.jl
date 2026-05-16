@@ -3,7 +3,7 @@ module StaticDictTrees
 using DataStructures
 
 import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, delete!
-export AbstractStaticDictTree, StaticDictTree, StaticDictBranch, prune!
+export AbstractStaticDictTree, StaticDictTree, StaticDictBranch, prune!, is_leaf_level
 
 #=
 Conventions:
@@ -29,7 +29,7 @@ abstract type AbstractStaticDictTree{KT <: Tuple, VT} <: AbstractDict{KT, VT} en
     StaticDictTree(d::AbstractDict{KT, VT})
     StaticDictTree(p::Vararg{Pair{KT, VT}})
 
-A high-performance, flattened hierarchical dictionary that maps fixed-depth `Tuple` keys of type `KT` to values of type `VT`. 
+A high-performance, flattened hierarchical dictionary that maps fixed-depth `Tuple` keys of type `KT` to values of type `VT`.
 
 `StaticDictTree` stores all values contiguously in a flat vector for cache-friendly iteration and achieves O(1) lookups by hashing the full tuple path. It natively supports heterogeneous tuple keys without type instability.
 """
@@ -170,7 +170,7 @@ struct StaticDictBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractStaticDictT
         lookup = d.branch_lookup[depth]::Dict{PT, OrderedDict{ST, Int}}
         if !haskey(lookup, prefix)
             throw(KeyError(prefix))
-        end        
+        end
         node = lookup[prefix]::OrderedDict{ST, Int}
         return new{KT, PT, ST, VT}(d, prefix, depth, node)
     end
@@ -218,7 +218,7 @@ setindex!(v::StaticDictBranch{KT, PT, ST, VT}, value, key)     where {KT, PT, ST
     delete!(d::StaticDictTree{KT, VT}, key::KT)
     delete!(v::StaticDictBranch, key::ST)
 
-Removes a specific leaf `key` from the tree. 
+Removes a specific leaf `key` from the tree.
 
 Because values are stored in a flat array, deleting a leaf forces all subsequent elements to shift, making this an O(E) operation (where E is the number of elements). For removing entire sub-trees efficiently, use `prune!`.
 """
@@ -244,7 +244,7 @@ function delete!(d::StaticDictTree{KT, VT}, key::KT) where {KT, VT}
     for depth in 1:(N-1)
         prefix = ntuple(i -> key[i], depth)
         suffix = ntuple(i -> key[depth + i], N - depth)
-        
+
         lookup_dict = d.branch_lookup[depth]
         if haskey(lookup_dict, prefix)
             delete!(lookup_dict[prefix], suffix)
@@ -268,7 +268,7 @@ delete!(v::StaticDictBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = d
     prune!(d::StaticDictTree, prefix::Tuple)
     prune!(v::StaticDictBranch, prefix::Tuple)
 
-Removes an entire branch (identified by `prefix`) and all of its associated leaves from the tree. 
+Removes an entire branch (identified by `prefix`) and all of its associated leaves from the tree.
 
 This safely orchestrates the deletion of multiple leaves, ensuring internal memory indices and branch caches are properly shifted and maintained.
 """
@@ -284,7 +284,7 @@ function prune!(d::StaticDictTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tupl
 
     if haskey(lookup, prefix)
         inner_dict = lookup[prefix]
-        
+
         inds_to_delete = collect(values(inner_dict))
         keys_to_delete = [d.keys[i] for i in inds_to_delete]
 
@@ -304,48 +304,80 @@ end
 
 
 # ------------------------------------------------------------------------------
-# Display Methods
+# AbstractTrees.jl Integration
 # ------------------------------------------------------------------------------
 
-show(io::IO, d::StaticDictTree{KT, VT}) where {KT, VT} =
+is_leaf_level(::StaticDictTree{  KT})         where {KT <: Tuple}         = fieldcount(KT) == 1
+is_leaf_level(::StaticDictBranch{KT, PT, ST}) where {KT, PT, ST <: Tuple} = fieldcount(ST) == 1
+
+using AbstractTrees
+import AbstractTrees: children, printnode
+
+struct Leaf{K, V}
+    key::K
+    value::V
+end
+
+function children(d::StaticDictTree{KT}) where {KT <: Tuple}
+    if is_leaf_level(d)
+        return [Leaf(k[1], v) for (k, v) in d]
+    else
+        return [StaticDictBranch(d, p) for p in keys(d.branch_lookup[1])]
+    end
+end
+
+function children(v::StaticDictBranch{KT}) where {KT <: Tuple}
+    if is_leaf_level(v)
+        return [Leaf(k[1], v.parent.values[idx]) for (k, idx) in v.node]
+    else
+        unique_next_steps = unique(k[1] for k in keys(v.node))
+        return [StaticDictBranch(v.parent, (v.prefix..., step)) for step in unique_next_steps]
+    end
+end
+
+function children(e::Leaf{K, V}) where {K, V}
+    c = children(e.value)
+    if !isempty(c)  # It's a collection (like Dict, Array), return its children directly to bypass the redundant node!
+        return c
+    end
+    return ()
+end
+
+printnode(io::IO, d::StaticDictTree) = print(io, "StaticDictTree (Root)")
+printnode(io::IO, v::StaticDictBranch) = print(io, repr(v.prefix[end]))
+
+function printnode(io::IO, e::Leaf{K, V}) where {K, V}
+    c = children(e.value)
+    if !isempty(c)
+        print(io, repr(e.key), " => ", summary(e.value))
+    else
+        print(io, repr(e.key), " => ", repr(e.value))
+    end
+end
+
+
+# ------------------------------------------------------------------------------
+# Display Methods (REPL integration)
+# ------------------------------------------------------------------------------
+
+# The 1-line summary (used when the tree is inside an array or printed inline)
+Base.show(io::IO, d::StaticDictTree{KT, VT}) where {KT, VT} =
     print(io, "StaticDictTree{$KT, $VT} with $(length(d)) entries")
 
-show(io::IO, v::StaticDictBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} =
+Base.show(io::IO, v::StaticDictBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} =
     print(io, "StaticDictBranch{$KT, $ST, $VT} (prefix = $(v.prefix)) with $(length(v)) entries")
 
-function show(io::IO, ::MIME"text/plain", d::AbstractStaticDictTree)
-    SEP = " "^4
+# The REPL display (used when a user types the variable name and hits Enter)
+function Base.show(io::IO, ::MIME"text/plain", d::AbstractStaticDictTree)
     show(io, d)
-    print(io, ":")
 
-    isempty(d) && return
-    println(io)
-
-    prev_key = ()
-    is_first = true
-
-    for (key, val) in d
-        match_len = 0
-        for i in 1:min(length(prev_key), length(key))
-            if prev_key[i] == key[i]
-                match_len += 1
-            else
-                break
-            end
-        end
-
-        for i in (match_len + 1):(length(key) - 1)
-            !is_first && println(io)
-            print(io, SEP^i, repr(key[i]))
-            is_first = false
-        end
-
-        !is_first && println(io)
-        print(io, SEP^length(key), repr(key[end]), " => ", repr(val))
-        is_first = false
-
-        prev_key = key
+    if isempty(d)
+        print(io, " (empty)")
+        return
     end
+
+    println(io, ":")
+    print_tree(io, d)
 end
 
 end # module StaticDictTrees
