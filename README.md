@@ -53,23 +53,63 @@ The functionality provided by `SDTree` is similar to the one provided by a spars
 pkg> add StaticDictTrees
 ```
 
-## Quick Start
+## Static Dict Tree creation
 
-Create a tree by specifying the fixed `Tuple` type for your keys, and the type for your values.
+Create an empty tree by specifying the fixed `Tuple` type to be used as keys.  Any tuple can be used for the purpose:
 
 ```julia
 using StaticDictTrees
 
 # Create an empty tree using `Tuple{Int, Symbol, String}` as key
 dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
+```
 
-# Insert data using standard dictionary syntax
+Insert data using standard `Dict` syntax:
+```julia
 dt[1, :server, "latency"] = 12.5
 dt[1, :server, "uptime"]  = 99.9
 dt[2, :local,  "cache"]   = 2.1
 ```
 
-`StaticDictTrees.jl` integrates with `AbstractTrees.jl` hence typing `dt` in the REPL instantly visualizes your data:
+
+## Zero-Allocation Views
+
+A view on a `SDTree` is a lightweight, zero-allocation object holding a direct memory pointer to a specific subset of the parent tree's cache.
+```julia
+# Take a view on a branch
+v = view(part_mass, (:Fermion, :Lepton))
+
+# Updating the view mutates the underlying tree data
+v[:electron_neutrino] = NaN
+
+part_mass[:Fermion, :Lepton, :electron_neutrino]
+NaN
+```
+
+
+## `AbstractDict` and `AbstractTrees` integration
+
+All data structures defined in `StaticDictTrees` inherit from `AbstractSDTree`, which in turn inherit from `AbstractDict` and implement all the relevant functionalities, i.e.:
+```julia
+# Iterate over all leaves in the same order they were inserted
+for (key, val) in part_mass
+    println("Path: $key, Value: $val")
+end
+
+# Convert to a standard dictionary
+Dict(part_mass)
+
+# Get all keys
+keys(part_mass)
+
+# Get all values
+values(part_mass)
+
+# Print number of entries
+length(part_mass)
+```
+
+Also, `StaticDictTrees.jl` implements the `AbstractTrees.jl` interface hence typing `dt` in the REPL instantly visualizes your data:
 
 ```julia
 julia> dt
@@ -84,53 +124,39 @@ SDTree (Root)
       └─ "cache" => 2.1
 ```
 
-## Zero-Allocation Views
 
-A view on a `SDTree` is a lightweight, zero-allocation object holding a direct memory pointer to a specific subset of the parent tree's cache.
-```julia
-# Take a view of everything under `(1, :server)`
-server_view = view(dt, (1, :server))
 
-# Mutating the view mutates the underlying flat array
-server_view["latency"] = 8.0
+## Tree Navigation and Utilities
 
-dt[1, :server, "latency"]
-8.0
-```
+`StaticDictTrees` provides several utility functions to navigate the hierarchical structure, inspect paths, and remove specific elements. 
 
-Views automatically return the correct type based on the path length:
-* Partial path -> `SDBranch`
-* Full path -> `SDLeaf`
-
-## Pruning and Deletion
-
-Because values are stored in a dense, flat array, deleting individual leaves forces subsequent elements to shift in memory. `StaticDictTrees` provides a powerful `prune!` function to efficiently remove entire branches at once.
+Using the `part_mass` tree from our first example, here is how you can use `depth`, `is_leaf_level`, `parent`, and the standard `delete!` function:
 
 ```julia
-# Removes the entire `(1, :server)` branch and all its associated leaves safely
-prune!(dt, (1, :server))
+# Get the fixed depth of the tree (the length of the tuple keys)
+println(depth(part_mass))
+# Output: 3
 
-# You can also use prune! on a full key (it falls back to standard delete!)
-prune!(dt, (2, :local, "cache"))
+# Check if a structure points to a final value, namely if it can be indexed by a scalar value
+println(is_leaf_level(part_mass)) # false
+println(is_leaf_level(view(part_mass, (:Fermion)))) # false
+println(is_leaf_level(view(part_mass, (:Fermion, :Quark)))) # true
+println(view(part_mass, (:Fermion, :Quark))[:up]) # the view is at leaf level, hence we can use a scalar value as key
+
+# Navigate upward from a specific view
+quarks = view(part_mass, (:Fermion, :Quark))
+fermions = parent(quarks)
+
+# Remove a specific entry
+# (Note: to remove an entire branch at once, use `prune!` instead)
+delete!(part_mass, (:Boson, :Scalar, :higgs))
+
+# Remove a branch from the tree
+prune!(part_mass, (:Boson,))
+
+# Remove a branch from a view
+prune!(view(part_mass, (:Fermion,)), (:Quark,))
 ```
-
-## Ecosystem Compatibility
-
-Because `AbstractSDTree <: AbstractDict`, it works perfectly with Julia's standard library.
-
-```julia
-# Iterate over all leaves in the same order they were inserted
-for (key, val) in dt
-    println("Path: $key, Value: $val")
-end
-
-# Convert to a standard dictionary
-Dict(dt)
-
-# Get all values as a flat iterator
-values(dt)
-```
-
 
 ## Demonstrating $O(1)$ Scalability
 
