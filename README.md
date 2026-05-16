@@ -1,109 +1,109 @@
 # StaticDictTrees.jl
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+**StaticDictTrees.jl** provides a high-performance, flattened hierarchical dictionary for Julia. It maps fixed-depth `Tuple` keys to values, combining the ergonomics of a nested tree with the extreme performance and cache-locality of flat arrays.
 
-**StaticDictTrees.jl** provides a high-performance, type-stable, flattened hierarchical dictionary for Julia. It mimics the ergonomics of nested dictionaries without the complexity and type instability of nested `Dict` structures. By flattening hierarchies into `Tuple` keys and using cached secondary indices, it enables **O(1)** lookups optimized for write-seldom, read-often workflows.
-
-Crucially, `StaticDictTrees` provides native, allocation-free support for **heterogeneous tuple keys** (e.g., `Tuple{Int, Symbol, String}`), allowing you to mix data types in your hierarchical paths while maintaining strict type stability.
+If you need a multidimensional, hierarchical key-value store but cannot afford the memory overhead, pointer-chasing, or type instability of deeply nested standard `Dict`s, this package is for you.
 
 ## Why StaticDictTrees?
 
-Standard nested dictionaries (e.g., `Dict{K, Dict{K, V}}`) suffer from:
-* **Poor Iteration:** Requires complex recursive loops.
-* **Memory Overhead:** Every node is a separate hash table allocation.
-* **Type Instability:** Hard to maintain strict typing across variable depths, especially with mixed key types.
-
-`StaticDictTrees.jl` stores all values in a single flat vector and provides zero-cost `SDBranch` views for sub-tree exploration.
-
-### Comparison with `DataStructures.Trie`
-
-While `Trie` (from `DataStructures.jl`) is an excellent data structure, it serves a different core purpose. `StaticDictTrees` offers several distinct architectural advantages for fixed-depth data:
-
-1. **Heterogeneous Keys:** A `Trie{K, V}` requires a homogeneous sequence of keys (e.g., an array of `Char` for strings, or a sequence of strictly `Symbol`s). `SDTree` fully supports mixed types in the path (e.g., `(1, :server, "latency")`).
-2. **O(1) Lookups:** Looking up a deep value in a `Trie` is an **O(L)** operation, requiring `L` separate hash lookups and pointer jumps down the node tree. `SDTree` resolves the entire path in exactly **one** hash lookup (O(1)).
-3. **Contiguous Memory:** `Trie` nodes are scattered across the heap. `SDTree` stores all values contiguously in a single `Vector`, maximizing cache locality.
-4. **Trade-off:** To achieve this performance, `SDTree` requires a **fixed tree depth** determined by the `Tuple` type, whereas a `Trie` gracefully handles highly variable-length sequences.
+* **O(1) Everything:** Lookups and insertions are O(1) by hashing the full tuple path.
+* **Cache-Friendly:** All values are stored contiguously in a single flat `Vector`.
+* **Zero-Allocation Views:** Instantly step into sub-branches without allocating new dictionaries or copying data.
+* **100% Julian:** Fully subtypes `AbstractDict` and integrates seamlessly with `AbstractTrees.jl`.
+* **Type Stable:** Natively supports heterogeneous tuple keys (e.g., `Tuple{Int, Symbol, String}`) without type instability.
 
 ## Installation
 
 ```julia
-using Pkg
-Pkg.add("StaticDictTrees")
+# Hit `]` in the REPL to enter the Pkg prompt
+pkg> add StaticDictTrees
 ```
 
-## Usage
+## Quick Start
 
-### Creating a Tree with Heterogeneous Keys
-
-Initialize a tree by specifying a strictly typed `Tuple` for the keys and a type for the values. 
+Create a tree by specifying the fixed `Tuple` type for your keys, and the type for your values.
 
 ```julia
 using StaticDictTrees
 
-# Tree with depth 3, mixing Int, Symbol, and String keys!
-dt = SDTree((1, :server, "latency") => 12.5,
-            (1, :server, "uptime")  => 99.9,
-            (2, :local, "cache")    => 2.1)
-```
-
-### Branching and Chaining (Views)
-
-`SDBranch` provides a type-stable view into a sub-tree without memory reallocation. You must provide the prefix as a `Tuple`. You can also chain branches together—they safely collapse down to the root parent automatically.
-
-```julia
-# Branch from the root
-server_view = SDBranch(dt, (1, :server))
-println(server_view[("latency",)]) # 12.5
-
-# Branch from another branch
-root_view = SDBranch(dt, (1,))
-db_view = SDBranch(root_view, (:server,))
-
-db_view["uptime"] = 100.0 # Mutates the underlying root tree!
-```
-
-### Deletion vs. Pruning
-
-* **`delete!`** removes a specific leaf entry from the tree.
-* **`prune!`** removes an entire branch and all of its associated leaves, intelligently shifting internal indices.
-
-```julia
-# Delete a specific leaf using a full tuple key
-delete!(dt, (2, :local, "cache"))
-
-# Prune an entire branch from the root
-prune!(dt, (1, :server))
-
-# Prune via a branch view
-prune!(root_view, (:server,))
-```
-
-
-### Standard Dictionary Methods
-
-`StaticDictTrees.jl` fully supports Julia's standard dictionary interface.
-
-```julia
+# Create a tree with a depth of 3
 dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
-dt[(1, :server, "latency")] = 12.5
-dt[(1, :server, "uptime")] = 99.9
 
-server_view = SDBranch(dt, (1, :server))
+# Insert data using standard dictionary syntax
+dt[1, :server, "latency"] = 12.5
+dt[1, :server, "uptime"]  = 99.9
+dt[2, :local,  "cache"]   = 2.1
+```
 
-# Iteration yields `key => value` in insertion order.
-for (k, v) in server_view
-    println(k, " -> ", v) # k is ("latency",), etc.
+Because `StaticDictTrees.jl` integrates with `AbstractTrees.jl`, typing `dt` in the REPL instantly visualizes your data:
+
+```julia
+julia> dt
+SDTree{Tuple{Int64, Symbol, String}, Float64} with 3 entries:
+SDTree (Root)
+├─ 1
+│  └─ :server
+│     ├─ "latency" => 12.5
+│     └─ "uptime" => 99.9
+└─ 2
+   └─ :local
+      └─ "cache" => 2.1
+```
+
+## Zero-Allocation Views
+
+Instead of copying data to look at a specific sub-branch, use the `view` function. This creates a lightweight, zero-allocation `SDBranch` (or `SDLeaf`) that holds a direct memory pointer to the parent tree's internal caches.
+
+```julia
+# Take a view of everything under `(1, :server)`
+server_view = view(dt, (1, :server))
+
+# Mutating the view mutates the underlying flat array
+server_view["latency"] = 8.0 
+
+julia> dt[1, :server, "latency"]
+8.0
+```
+
+Views automatically route to the correct type based on the path length:
+* Partial path -> `SDBranch`
+* Full path -> `SDLeaf`
+
+## Pruning and Deletion
+
+Because values are stored in a dense, flat array, deleting individual leaves forces subsequent elements to shift in memory. `StaticDictTrees` provides a powerful `prune!` function to efficiently remove entire branches at once.
+
+```julia
+# Removes the entire `(1, :server)` branch and all its associated leaves safely
+prune!(dt, (1, :server)) 
+
+# You can also use prune! on a full key (it falls back to standard delete!)
+prune!(dt, (2, :local, "cache")) 
+```
+
+## Ecosystem Compatibility
+
+Because `AbstractSDTree <: AbstractDict`, it works perfectly with Julia's standard library. 
+
+```julia
+# Iterate over all leaves
+for (key, val) in dt
+    println("Path: $key, Value: $val")
 end
 
-# Extract components
-k = keys(dt)
-v = values(server_view) # Returns a fast SubArray view of the root vector!
+# Convert to a standard dictionary
+Dict(dt)
 
-# Emptying
-empty!(server_view) # Empties just the branch
-empty!(dt)          # Empties the entire tree
+# Get all values as a flat iterator
+values(dt)
 ```
 
-## Disclaimer
+## Under the Hood
 
-This package was developed with the assistance of AI (Gemini), but all code has been manually reviewed and tested for type stability and correctness by the author.
+Standard nested dictionaries (e.g., `Dict{Int, Dict{Symbol, Float64}}`) suffer from heavy memory fragmentation and pointer-chasing. 
+
+`SDTree` solves this using **Data-Oriented Design**:
+1. `keys`: A single `Vector{KT}`.
+2. `values`: A single `Vector{VT}`.
+3. `lookup`: A single flat `Dict{KT, Int}` mapping the full tuple to the array index.
+4. `branch_lookup`: A tuple of highly optimized dictionaries that track the hierarchical relationships (prefixes to suffixes) purely using integer indices, enabling instant tree-traversal and visualization without duplicating your actual data.
