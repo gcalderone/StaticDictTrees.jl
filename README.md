@@ -200,28 +200,28 @@ The `test/check_performance.jl` script allows you to measure the performance of 
 julia> include("test/check_performance.jl")
 --- Generate small (N=1,000) and large (N=1,000,000) datasets ---
 
---- Test retrieval ---
-N = 1,000           :   27.000 ns (0 allocations: 0 bytes)
+--- Test lookups ---
+N = 1,000           :   28.000 ns (0 allocations: 0 bytes)
 N = 1,000 (Dict)    :   27.000 ns (0 allocations: 0 bytes)
-N = 1,000,000       :   37.000 ns (0 allocations: 0 bytes)
-N = 1,000,000 (Dict):   40.000 ns (0 allocations: 0 bytes)
+N = 1,000,000       :   38.000 ns (0 allocations: 0 bytes)
+N = 1,000,000 (Dict):   35.000 ns (0 allocations: 0 bytes)
 
---- Test insertion ---
+--- Test insertions ---
 N = 1,000           :   41.000 ns (0 allocations: 0 bytes)
 N = 1,000 (Dict)    :   35.000 ns (0 allocations: 0 bytes)
-N = 1,000,000       :   81.000 ns (0 allocations: 0 bytes)
-N = 1,000,000 (Dict):   59.000 ns (0 allocations: 0 bytes)
+N = 1,000,000       :   75.000 ns (0 allocations: 0 bytes)
+N = 1,000,000 (Dict):   55.000 ns (0 allocations: 0 bytes)
 
---- Test overwrite ---
-N = 1,000           :   41.000 ns (0 allocations: 0 bytes)
-N = 1,000 (Dict)    :   34.000 ns (0 allocations: 0 bytes)
-N = 1,000,000       :   72.000 ns (0 allocations: 0 bytes)
-N = 1,000,000 (Dict):   45.000 ns (0 allocations: 0 bytes)
+--- Test updates ---
+N = 1,000           :   40.000 ns (0 allocations: 0 bytes)
+N = 1,000 (Dict)    :   35.000 ns (0 allocations: 0 bytes)
+N = 1,000,000       :   49.000 ns (0 allocations: 0 bytes)
+N = 1,000,000 (Dict):   42.000 ns (0 allocations: 0 bytes)
 
 --- Test view generation ---
-N = 1,000    :   10.230 ns (0 allocations: 0 bytes)
+N = 1,000    :   10.023 ns (0 allocations: 0 bytes)
 [ Info: View length: 10
-N = 1,000,000:   10.675 ns (0 allocations: 0 bytes)
+N = 1,000,000:   10.236 ns (0 allocations: 0 bytes)
 [ Info: View length: 10000
 ```
 No allocation was required, and benchmark times are independent of the data size for all cases (the slight increase in timing for the N=1,000,000 case is likely due to cache misses).
