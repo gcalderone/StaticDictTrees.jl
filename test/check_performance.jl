@@ -19,7 +19,7 @@ const dict_large = Dict(dt_large);
 const keys_small = collect(keys(dt_small));
 const keys_large = collect(keys(dt_large));
 
-println("\n--- Test retrieval ---")
+println("\n--- Test lookups ---")
 print("N = 1,000           : ")
 @btime $dt_small[k]                  evals=1 setup = (k = rand($keys_small))
 
@@ -33,7 +33,7 @@ print("N = 1,000,000 (Dict): ")
 @btime $dict_large[k]                evals=1 setup = (k = rand($keys_large))
 
 
-println("\n--- Test insertion ---")
+println("\n--- Test insertions ---")
 print("N = 1,000           : ")
 @btime $dt_small[newk] = rand()      evals=1 setup = (k = rand($keys_small); newk = (-k[1], k[2:end]...))
 
@@ -47,7 +47,7 @@ print("N = 1,000,000 (Dict): ")
 @btime $dict_large[newk] = rand()    evals=1 setup = (k = rand($keys_large); newk = (-k[1], k[2:end]...))
 
 
-println("\n--- Test overwrite ---")
+println("\n--- Test updates ---")
 print("N = 1,000           : ")
 @btime $dt_small[k] = rand()         evals=1 setup = (k = rand($keys_small))
 
@@ -73,3 +73,19 @@ print("N = 1,000,000: ")
     v = view($dt_large, (1,))
 end
 @info "View length: $(length(view(dt_large, (1,))))"
+
+
+d = Dict(dt_large);
+for (k, v) in dt_large
+    @assert dt_large[k] == d[k]
+end
+
+prune!(dt_large, (1,))
+for (k, v) in dt_large
+    @assert dt_large[k] == d[k]
+end
+
+prune!(dt_large, (8,))
+for (k, v) in dt_large
+    @assert dt_large[k] == d[k]
+end

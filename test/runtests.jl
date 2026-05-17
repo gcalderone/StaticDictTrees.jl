@@ -92,18 +92,18 @@ using AbstractTrees
         # 4. View bounds checking
         @test_throws ArgumentError view(dt, (1, :server, "latency", "extra"))
         @test_throws ArgumentError view(v1, (:server, "latency", "extra"))
-        
+
         # 5. Mutation via views updates the underlying flat array
         v2["latency"] = 99.0
         @test dt[1, :server, "latency"] == 99.0
-        
+
         lf2[(1, :server, "latency")] = 42.0
         @test dt[1, :server, "latency"] == 42.0
     end
 
     @testset "Iteration and Collection" begin
         dt = SDTree((1, :a) => 10, (1, :b) => 20, (2, :c) => 30)
-        
+
         # Tree iteration
         @test length(collect(dt)) == 3
         @test ((1, :a) => 10) in collect(dt)
@@ -117,6 +117,73 @@ using AbstractTrees
         lf = view(dt, (2, :c))
         @test length(collect(lf)) == 1
         @test collect(lf)[1] == ((2, :c) => 30)
+    end
+
+    @testset "keys by level: SDTree and SDBranch" begin
+        # Setup a smaller, representative version of the Standard Model tree
+        dt = SDTree(
+            (:Fermion, :Quark, :up)       => 2.2,
+            (:Fermion, :Quark, :down)     => 4.7,
+            (:Fermion, :Lepton, :electron)=> 0.51,
+            (:Boson, :Gauge, :photon)     => 0.0,
+            (:Boson, :Scalar, :higgs)     => 125100.0
+        )
+
+        @testset "Root SDTree (Depth = 3)" begin
+            # Level 1: Base Categories
+            lvl1 = keys(dt, 1)
+            @test Set(lvl1) == Set([(:Fermion,), (:Boson,)])
+
+            # Level 2: Sub-categories
+            lvl2 = keys(dt, 2)
+            @test Set(lvl2) == Set([
+                (:Fermion, :Quark),
+                (:Fermion, :Lepton),
+                (:Boson, :Gauge),
+                (:Boson, :Scalar)
+            ])
+
+            # Level 3: Full Leaves
+            lvl3 = keys(dt, 3)
+            @test length(lvl3) == 5
+            @test (:Fermion, :Quark, :up) in lvl3
+
+            # Out of Bounds
+            @test_throws ArgumentError keys(dt, 0)
+            @test_throws ArgumentError keys(dt, 4)
+        end
+
+        @testset "Mid-level SDBranch (Depth = 2 remaining)" begin
+            fermions = view(dt, (:Fermion,))
+
+            # Level 1: Sub-categories relative to :Fermion
+            lvl1 = keys(fermions, 1)
+            @test Set(lvl1) == Set([(:Quark,), (:Lepton,)])
+
+            # Level 2: Full valid suffixes for :Fermion
+            lvl2 = keys(fermions, 2)
+            @test Set(lvl2) == Set([
+                (:Quark, :up),
+                (:Quark, :down),
+                (:Lepton, :electron)
+            ])
+
+            # Out of Bounds
+            @test_throws ArgumentError keys(fermions, 0)
+            @test_throws ArgumentError keys(fermions, 3)
+        end
+
+        @testset "Deep SDBranch (Depth = 1 remaining)" begin
+            quarks = view(dt, (:Fermion, :Quark))
+
+            # Level 1: Full valid suffixes for :Quark
+            lvl1 = keys(quarks, 1)
+            @test Set(lvl1) == Set([(:up,), (:down,)])
+
+            # Out of Bounds (Branch only has 1 level left!)
+            @test_throws ArgumentError keys(quarks, 0)
+            @test_throws ArgumentError keys(quarks, 2)
+        end
     end
 
     @testset "Deletion and Pruning" begin
@@ -134,17 +201,17 @@ using AbstractTrees
         # prune!
         dt[3, :x] = 100.0
         dt[3, :y] = 200.0
-        
+
         prune!(dt, (3,))
         @test length(dt) == 2
         @test !haskey(dt, (3, :x))
         @test !haskey(dt, (3, :y))
-        
+
         # Prune via branch
         dt[4, :m] = 40.0
         dt[4, :n] = 50.0
         br = view(dt, 4)
-        @test is_leaf_level(br)        
+        @test is_leaf_level(br)
         prune!(br, (:m,)) # Prunes at the leaf level
         @test !haskey(dt, (4, :m))
         @test haskey(dt, (4, :n))
@@ -159,16 +226,16 @@ using AbstractTrees
         c_root = children(dt)
         @test length(c_root) == 1
         @test c_root[1] isa SDBranch
-        
+
         c_branch = children(c_root[1])
         @test length(c_branch) == 2
         @test c_branch[1] isa SDLeaf
-        
+
         @test isempty(children(c_branch[1])) # Leaves have no children by default
 
         # 2. Print formatting (Capture REPL output)
         out_str = sprint(print_tree, dt)
-        
+
         @test occursin("SDTree (Root)", out_str)
         @test occursin("1", out_str)
         @test occursin(":a => 10.0", out_str)
@@ -177,7 +244,7 @@ using AbstractTrees
         # 3. Collection expansion fallback
         dt_nested = SDTree{Tuple{Int}, Vector{Int}}()
         dt_nested[1] = [99, 100]
-        
+
         out_nested = sprint(print_tree, dt_nested)
         @test occursin("1 =>", out_nested) # Should not double print the vector
         @test occursin("99", out_nested)

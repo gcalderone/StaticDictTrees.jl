@@ -78,6 +78,63 @@ haskey(d::SDTree{KT, VT}, key::KT) where {KT, VT} = haskey(d.lookup, key)
 depth( d::SDTree{KT, VT}) where {KT, VT} = fieldcount(KT)
 is_leaf_level(::SDTree{KT}) where {KT <: Tuple} = fieldcount(KT) == 1
 
+# Customized keys()
+"""
+    keys(d::SDTree, level::Int)
+    keys(v::SDBranch, level::Int)
+
+Return an iterator over the unique tuple prefixes (or suffixes, for a branch)
+down to the specified `level`.
+
+When `level` equals the total depth of the tree (or the remaining depth of the branch),
+this is equivalent to `keys(d)` and returns the full paths to the leaves.
+For intermediate levels, it returns the unique partial paths representing the
+branches at that depth.
+
+# Arguments
+- `d::SDTree` or `v::SDBranch`: The static dictionary tree or branch view.
+- `level::Int`: The depth of the keys to retrieve. Must be between 1 and the
+  maximum depth of the tree (or the remaining depth of the branch).
+
+# Examples
+```julia-repl
+julia> dt = SDTree((:Fermion, :Quark, :up) => 2.2,
+                   (:Fermion, :Lepton, :electron) => 0.51,
+                   (:Boson, :Gauge, :photon) => 0.0);
+
+# Level 1 returns the root categories
+julia> collect(keys(dt, 1))
+2-element Vector{Tuple{Symbol}}:
+ (:Fermion,)
+ (:Boson,)
+
+# Level 2 returns the sub-categories
+julia> collect(keys(dt, 2))
+3-element Vector{Tuple{Symbol, Symbol}}:
+ (:Fermion, :Quark)
+ (:Fermion, :Lepton)
+ (:Boson, :Gauge)
+
+# For a branch, the level is relative to the branch's root
+julia> fermions = view(dt, (:Fermion,))
+julia> collect(keys(fermions, 1))
+2-element Vector{Tuple{Symbol}}:
+ (:Quark,)
+ (:Lepton,)
+```
+"""
+function keys(d::SDTree{KT, VT}, level::Int) where {KT <: Tuple, VT}
+    N = fieldcount(KT)
+
+    if level == N
+        return keys(d) # Returns the full tuple keys (leaf level)
+    elseif 1 <= level < N
+        return keys(d.branch_lookup[level]) # Returns the intermediate prefixes
+    else
+        throw(ArgumentError("Level ($level) must be between 1 and tree depth ($N)."))
+    end
+end
+
 """
     parent(d::SDTree)
     parent(v::SDBranch)
@@ -188,6 +245,20 @@ length(v::SDBranch) = length(v.node)
 haskey(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = haskey(v.node, key)
 depth( d::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = fieldcount(PT)
 is_leaf_level(::SDBranch{KT, PT, ST}) where {KT, PT, ST <: Tuple} = fieldcount(ST) == 1
+
+# Customized keys
+function keys(v::SDBranch{KT, PT, ST, VT}, level::Int) where {KT, PT, ST, VT}
+    max_level = fieldcount(ST)
+
+    if level == max_level
+        return keys(v) # Returns the full valid suffixes for this branch
+    elseif 1 <= level < max_level
+        # Extract the sub-path from the branch's leaves and return the unique ones
+        return unique(k[1:level] for k in keys(v))
+    else
+        throw(ArgumentError("Level ($level) must be between 1 and branch depth ($max_level)."))
+    end
+end
 
 function parent(v::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT}
     (fieldcount(PT) == 1) && return v.parent
@@ -369,23 +440,63 @@ function prune!(d::SDTree{KT, VT}, path::Tuple) where {KT <: Tuple, VT}
         return delete!(d, convert(KT, path))
     end
 
-    # It's a true prefix, perform the standard pruning logic
-    PT = typeof(path)
-    ST = Tuple{fieldtypes(KT)[L+1:end]...}
-    lookup = d.branch_lookup[L]::Dict{PT, OrderedDict{ST, Int}}
+    lookup_dict = d.branch_lookup[L]
 
-    if haskey(lookup, path)
-        inner_dict = lookup[path]
+    if haskey(lookup_dict, path)
+        inner_dict = lookup_dict[path]
 
-        inds_to_delete = collect(values(inner_dict))
+        # Gather all indices to delete and SORT them in ascending order
+        # (deleteat! requires a strictly sorted list of indices)
+        inds_to_delete = sort!(collect(values(inner_dict)))
+
+        # Extract the full tuple keys BEFORE we start deleting anything
         keys_to_delete = [d.keys[i] for i in inds_to_delete]
 
-        # Delete in reverse index order to prevent index shifting from messing up the loop
-        pairs = sort!(collect(zip(inds_to_delete, keys_to_delete)), by=x->x[1], rev=true)
-        for (_, k) in pairs
-            delete!(d, k)
+        # Clean up the dictionary hierarchy
+        for key in keys_to_delete
+            delete!(d.lookup, key)
+
+            for depth in 1:(N-1)
+                prefix = ntuple(i -> key[i], depth)
+                suffix = ntuple(i -> key[depth + i], N - depth)
+
+                b_lookup = d.branch_lookup[depth]
+                if haskey(b_lookup, prefix)
+                    delete!(b_lookup[prefix], suffix)
+
+                    # The Ghost-Branch Fix: If parent is now empty, delete it!
+                    if isempty(b_lookup[prefix])
+                        delete!(b_lookup, prefix)
+                    end
+                end
+            end
+        end
+
+        # Batch delete from arrays
+        deleteat!(d.values, inds_to_delete)
+        deleteat!(d.keys, inds_to_delete)
+
+        # Batch recache indices
+        # (Use binary search to find exactly how much each remaining index shifted)
+        for (k, v) in d.lookup
+            offset = searchsortedlast(inds_to_delete, v)
+            if offset > 0
+                d.lookup[k] = v - offset
+            end
+        end
+
+        for b_lookup in d.branch_lookup
+            for inner in values(b_lookup)
+                for (k, v) in inner
+                    offset = searchsortedlast(inds_to_delete, v)
+                    if offset > 0
+                        inner[k] = v - offset
+                    end
+                end
+            end
         end
     end
+
     return d
 end
 
