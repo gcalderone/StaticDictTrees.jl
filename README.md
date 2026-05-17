@@ -1,6 +1,6 @@
 # StaticDictTrees.jl
 
-**StaticDictTrees.jl** maps fixed-length `Tuple` keys to values, just like a standard `Dict` would, with the additional capability of providing tree-like views on a subset identified by providing only a part of the original tuple used as key.
+**StaticDictTrees.jl** maps fixed-length `Tuple` keys to values, just like a standard `Dict` would.  Also, it allows you to obtain tree-like views on a branch identified by an incomplete key.
 
 ```julia
 using StaticDictTrees
@@ -32,17 +32,30 @@ leptons = view(part_mass, (:Fermion, :Lepton))
 println(leptons[:electron])
 ```
 
-The functionality provided by `SDTree` is similar to the one provided by a sparse matrix, but it uses a generic `Tuple` as key rather than a tuple of positive integers.  Also, the functionality is identical to that of a `Dict`, with the possibility to use partial keys.  Finally, it allows users to represent a (constant depth) data tree and to walk it sequentially.
+## Use cases
 
+`StaticDictTrees` provides a suitable data structure in the following cases:
+
+- You need something similar to a sparse matrix whose indexing is based on a generic `Tuple`, rather than a tuple of integers;
+
+- You need a `Dict` with `Tuple` keys, but you also need to quickly access data based on an incomplete key (branch);
+
+- You need to implement an in-memory database index based on a composite primary key;
+
+- You need to represent a tree with fixed depth, and to walk it sequentially
+
+### Limitations
+
+The dictionary tree provided by `StaticDictTree` has a constant (*static*, hence the name) depth, i.e., all leaves have exactly the same distance from the root equal to the length of the `Tuple` used as key.
 
 
 ## Features
 
-* **Tuple keys:** Support any generic `Tuple` as key;
-* **O(1) everything:** Lookups and insertions are O(1);
+* **Tuple keys:** Supports any generic `Tuple` as key;
+* **O(1) complexity:** Lookups, insertions and updates have $O(1)$ complexity (deletion and pruning scale as $O(N)$);
 * **Cache-friendly:** All values are stored contiguously in a single flat `Vector`;
 * **Zero-allocation views:** Instantly step into sub-branches without allocating new dictionaries or copying data;
-* **100% compatible with Julia ecosystem:** Fully implement the `AbstractDict` and `AbstractTrees.jl` interface;
+* **100% compatible with Julia ecosystem:** Fully implements the `AbstractDict` and `AbstractTrees.jl` interfaces;
 * **Type Stable:** Natively supports heterogeneous tuple keys (e.g., `Tuple{Int, Symbol, String}`) without type instability.
 
 
@@ -126,9 +139,9 @@ SDTree (Root)
 
 
 
-## Tree Navigation and Utilities
+## Tree navigation and utilities
 
-`StaticDictTrees` provides several utility functions to navigate the hierarchical structure, inspect paths, and remove specific elements. 
+`StaticDictTrees` provides several utility functions to navigate the hierarchical structure, inspect paths, and remove specific elements.
 
 Using the `part_mass` tree from our first example, here is how you can use `depth`, `is_leaf_level`, `parent`, and the standard `delete!` function:
 
@@ -143,22 +156,36 @@ println(is_leaf_level(view(part_mass, (:Fermion)))) # false
 println(is_leaf_level(view(part_mass, (:Fermion, :Quark)))) # true
 println(view(part_mass, (:Fermion, :Quark))[:up]) # the view is at leaf level, hence we can use a scalar value as key
 
+# Retrieve unique prefixes down to a specific depth
+# Level 1 returns the root categories
+collect(keys(part_mass, 1))
+# Output: [(:Fermion,), (:Boson,)]
+
+# Level 2 returns the sub-categories
+collect(keys(part_mass, 2))
+# Output: [(:Fermion, :Quark), (:Fermion, :Lepton), (:Boson, :Gauge), (:Boson, :Scalar)]
+
+# For a branch, the level is relative to the branch's root
+fermions = view(part_mass, (:Fermion,))
+collect(keys(fermions, 1))
+# Output: [(:Quark,), (:Lepton,)]
+
 # Navigate upward from a specific view
 quarks = view(part_mass, (:Fermion, :Quark))
 fermions = parent(quarks)
 
-# Remove a specific entry
+# Remove a specific leaf entry
 # (Note: to remove an entire branch at once, use `prune!` instead)
 delete!(part_mass, (:Boson, :Scalar, :higgs))
 
-# Remove a branch from the tree
+# Remove an entire branch from the tree efficiently
 prune!(part_mass, (:Boson,))
 
-# Remove a branch from a view
+# Remove a branch from within a view
 prune!(view(part_mass, (:Fermion,)), (:Quark,))
 ```
 
-## Demonstrating $O(1)$ Scalability
+## Demonstrating $O(1)$ scalability
 
 True $O(1)$ complexity means that operations remain constant regardless of the dataset's size. Standard nested dictionaries require multiple hashes and pointer hops, often scaling poorly as memory fragmentation increases.
 
