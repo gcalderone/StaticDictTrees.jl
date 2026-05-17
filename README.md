@@ -36,18 +36,13 @@ println(leptons[:electron])
 
 `StaticDictTrees` provides a suitable data structure in the following cases:
 
-- You need something similar to a sparse matrix whose indexing is based on a generic `Tuple`, rather than a tuple of integers;
+- You need something similar to a multi-dimentional sparse array whose indexing is based on a generic `Tuple`, rather than a tuple of integers;
 
 - You need a `Dict` with `Tuple` keys, but you also need to quickly access data based on an incomplete key (branch);
 
 - You need to implement an in-memory database index based on a composite primary key;
 
 - You need to represent a tree with fixed depth, and to walk it sequentially
-
-### Limitations
-
-The dictionary tree provided by `StaticDictTree` has a constant (*static*, hence the name) depth, i.e., all leaves have exactly the same distance from the root equal to the length of the `Tuple` used as key.
-
 
 ## Features
 
@@ -57,6 +52,12 @@ The dictionary tree provided by `StaticDictTree` has a constant (*static*, hence
 * **Zero-allocation views:** Instantly step into sub-branches without allocating new dictionaries or copying data;
 * **100% compatible with Julia ecosystem:** Fully implements the `AbstractDict` and `AbstractTrees.jl` interfaces;
 * **Type Stable:** Natively supports heterogeneous tuple keys (e.g., `Tuple{Int, Symbol, String}`) without type instability.
+
+### Limitations
+
+The dictionary tree provided by `StaticDictTree` has a constant (*static*, hence the name) depth, i.e., all leaves have exactly the same distance from the root equal to the length of the `Tuple` used as key.
+
+If you need a variable depth tree consider using a [`Trie`](https://juliacollections.github.io/DataStructures.jl/stable/trie/) structure.
 
 
 ## Installation
@@ -102,7 +103,7 @@ part_mass[:Fermion, :Lepton, :electron_neutrino]
 
 ## `AbstractDict` and `AbstractTrees` integration
 
-All data structures defined in `StaticDictTrees` inherit from `AbstractSDTree`, which in turn inherit from `AbstractDict` and implement all the relevant functionalities, i.e.:
+All data structures defined in `StaticDictTrees` inherit from `AbstractDict` and implement all the relevant functionalities, i.e.:
 ```julia
 # Iterate over all leaves in the same order they were inserted
 for (key, val) in part_mass
@@ -122,8 +123,7 @@ values(part_mass)
 length(part_mass)
 ```
 
-Also, `StaticDictTrees.jl` implements the `AbstractTrees.jl` interface hence typing `dt` in the REPL instantly visualizes your data:
-
+Also, `StaticDictTrees.jl` implements the `AbstractTrees.jl` interface to exploit all its functionalities. E.g. the automatic display looks as follows:
 ```julia
 julia> part_mass
 SDTree{Tuple{Int64, Symbol, String}, Float64} with 3 entries:
@@ -143,7 +143,7 @@ SDTree (Root)
 
 `StaticDictTrees` provides several utility functions to navigate the hierarchical structure, inspect paths, and remove specific elements.
 
-Using the `part_mass` tree from our first example, here is how you can use `depth`, `is_leaf_level`, `parent`, and the standard `delete!` function:
+Using the `part_mass` tree from our first example, here is how you can use `depth`, `is_leaf_level`, `keys`, `parent`, and the standard `delete!` function:
 
 ```julia
 # Get the fixed depth of the tree (the length of the tuple keys)
@@ -183,9 +183,13 @@ prune!(part_mass, (:Boson,))
 
 # Remove a branch from within a view
 prune!(view(part_mass, (:Fermion,)), (:Quark,))
+
+# All operations on a branch are reflected into the parent tree, i.e. the part_mass now contains only "Fermions":
+keys(part_mass, 1)
+# Output: :Fermion
 ```
 
-## Demonstrating $O(1)$ scalability
+## Check $O(1)$ scalability
 
 True $O(1)$ complexity means that operations remain constant regardless of the dataset's size. Standard nested dictionaries require multiple hashes and pointer hops, often scaling poorly as memory fragmentation increases.
 
