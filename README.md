@@ -27,7 +27,7 @@ part_mass = SDTree((:Fermion, :Quark, :up)                 => 2.2,
 # Access using the entire key
 println(part_mass[:Fermion, :Lepton, :electron])
 
-# ... or create a view on a branch and use a partial key
+# ... or create a view based on an incomplete key (branch)
 leptons = view(part_mass, (:Fermion, :Lepton))
 println(leptons[:electron])
 ```
@@ -52,7 +52,7 @@ The dictionary tree provided by `StaticDictTree` has a constant (*static*, hence
 ## Features
 
 * **Tuple keys:** Supports any generic `Tuple` as key;
-* **O(1) complexity:** Lookups, insertions and updates have $O(1)$ complexity (deletion and pruning scale as $O(N)$);
+* **O(1) complexity:** Lookups, insertions and updates have $O(1)$ complexity (deletion and pruning scale as $O(N)$ );
 * **Cache-friendly:** All values are stored contiguously in a single flat `Vector`;
 * **Zero-allocation views:** Instantly step into sub-branches without allocating new dictionaries or copying data;
 * **100% compatible with Julia ecosystem:** Fully implements the `AbstractDict` and `AbstractTrees.jl` interfaces;
