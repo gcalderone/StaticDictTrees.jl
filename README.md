@@ -191,40 +191,34 @@ keys(part_mass, 1)
 
 ## Check $O(1)$ scalability
 
-True $O(1)$ complexity means that operations remain constant regardless of the dataset's size. Standard nested dictionaries require multiple hashes and pointer hops, often scaling poorly as memory fragmentation increases.
+True $O(1)$ complexity means that elapsed time during operations remains constant regardless of the dataset's size.  In the real world, however, it is difficult to empirically verify such statement due to a number of optimizations occurring at different levels (compiler, operating system, CPU cache, etc.)
 
-`SDTree` hashes the full tuple path directly to a single, flat, array index, therefore its retrieval and insertion times are completely decoupled from the number of elements in the tree.
-
-The `test/check_performance.jl` script allows you to measure the performance of `SDTree` (and compare them to the standard `Dict`) when dealing with a N=1,000 and N=1,000,000 datasets:
+The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion and an update using `SDTree`, and compare the corresponding times obtained with the standard `Dict`.  The example covers the cases N=1,000 and N=1,000,000 datasets.
 ```
 julia> include("test/check_performance.jl")
 --- Generate small (N=1,000) and large (N=1,000,000) datasets ---
 
 --- Test lookups ---
-N = 1,000           :   28.000 ns (0 allocations: 0 bytes)
-N = 1,000 (Dict)    :   27.000 ns (0 allocations: 0 bytes)
-N = 1,000,000       :   38.000 ns (0 allocations: 0 bytes)
-N = 1,000,000 (Dict):   35.000 ns (0 allocations: 0 bytes)
+Dict       (N=    1000), Avg. time:   60.1 ns, Allocated: 0 MB
+Dict       (N= 1000000), Avg. time:  115.6 ns, Allocated: 0 MB
+SDTree     (N=    1000), Avg. time:   81.0 ns, Allocated: 0 MB
+SDTree     (N= 1000000), Avg. time:  118.4 ns, Allocated: 0 MB
 
---- Test insertions ---
-N = 1,000           :   41.000 ns (0 allocations: 0 bytes)
-N = 1,000 (Dict)    :   35.000 ns (0 allocations: 0 bytes)
-N = 1,000,000       :   75.000 ns (0 allocations: 0 bytes)
-N = 1,000,000 (Dict):   55.000 ns (0 allocations: 0 bytes)
+--- Test insertion ---
+Dict       (N=    1000), Avg. time:   58.9 ns, Allocated: 0 MB
+Dict       (N= 1000000), Avg. time:  254.3 ns, Allocated: 132 MB
+SDTree     (N=    1000), Avg. time:  289.8 ns, Allocated: 1 MB
+SDTree     (N= 1000000), Avg. time: 1855.3 ns, Allocated: 705 MB
 
---- Test updates ---
-N = 1,000           :   40.000 ns (0 allocations: 0 bytes)
-N = 1,000 (Dict)    :   35.000 ns (0 allocations: 0 bytes)
-N = 1,000,000       :   49.000 ns (0 allocations: 0 bytes)
-N = 1,000,000 (Dict):   42.000 ns (0 allocations: 0 bytes)
-
---- Test view generation ---
-N = 1,000    :   10.023 ns (0 allocations: 0 bytes)
-[ Info: View length: 10
-N = 1,000,000:   10.236 ns (0 allocations: 0 bytes)
-[ Info: View length: 10000
+--- Test update ---
+Dict       (N=    1000), Avg. time:   72.2 ns, Allocated: 0 MB
+Dict       (N= 1000000), Avg. time:  160.5 ns, Allocated: 0 MB
+SDTree     (N=    1000), Avg. time:  105.6 ns, Allocated: 0 MB
+SDTree     (N= 1000000), Avg. time:  215.4 ns, Allocated: 0 MB
 ```
-No allocation was required, and benchmark times are independent of the data size for all cases (the slight increase in timing for the N=1,000,000 case is likely due to cache misses).
+
+As expected, both lookup and update operations do not require any allocation, and the averaged elapsed times scale approximately like `Dict` ones.  For insertions the performance for `SDTree` scale slightly worse than `Dict` due to the amount of internal structures to be updated to keep track of all newly inserted keys.
+
 
 
 ## Disclaimer
