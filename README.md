@@ -59,7 +59,7 @@ The dictionary tree provided by `StaticDictTree` has a constant (*static*, hence
 
 If you need a variable depth tree consider using a [`Trie`](https://juliacollections.github.io/DataStructures.jl/stable/trie/) structure.
 
-Also note that the key type must be a `Tuple`.  If you need just a simple `Symbol` or `Int` as key you'll need to use a `Tuple{Symbol}` or `Tuple{Int}` as key, or you may consider using an [`OrderedDict](https://juliacollections.github.io/DataStructures.jl/stable/ordered_containers/) which would provide the same functionalities.
+Also note that the key type must be a `Tuple`.  If all you need is simply a dictionary using `Symbol` or `Int` as key you may consider using an [`OrderedDict`](https://juliacollections.github.io/DataStructures.jl/stable/ordered_containers/) which would provide the same functionalities.
 
 ## Installation
 
