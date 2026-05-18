@@ -102,7 +102,7 @@ using AbstractTrees
         v2["latency"] = 99.0
         @test dt[1, :server, "latency"] == 99.0
 
-        lf2[(1, :server, "latency")] = 42.0
+        lf2[()] = 42.0
         @test dt[1, :server, "latency"] == 42.0
     end
 
@@ -115,13 +115,14 @@ using AbstractTrees
 
         # Branch iteration
         br = view(dt, 1)
+        @test is_leaf_level(br)
         @test length(collect(br)) == 2
         @test ((:a,) => 10) in collect(br)
 
         # Leaf iteration
         lf = view(dt, (2, :c))
         @test length(collect(lf)) == 1
-        @test collect(lf)[1] == ((2, :c) => 30)
+        @test collect(lf)[1] == (() => 30)
     end
 
     @testset "keys by level: SDTree and SDBranch" begin
@@ -230,7 +231,6 @@ using AbstractTrees
         dt[4, :m] = 40.0
         dt[4, :n] = 50.0
         br = view(dt, 4)
-        @test is_leaf_level(br)
         prune!(br, (:m,)) # Prunes at the leaf level
         @test !haskey(dt, (4, :m))
         @test haskey(dt, (4, :n))

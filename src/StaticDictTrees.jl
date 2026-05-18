@@ -298,7 +298,7 @@ setindex!(v::SDBranch{KT, PT, ST, VT}, value, key)     where {KT, PT, ST, VT} = 
 # ------------------------------------------------------------------------------
 # SDLeaf structure
 # ------------------------------------------------------------------------------
-struct SDLeaf{KT, VT} <: AbstractSDTree{KT, VT}
+struct SDLeaf{KT, VT} <: AbstractSDTree{Tuple{}, VT}
     root::SDTree{KT, VT}
     key::KT
 
@@ -311,10 +311,10 @@ function empty!(v::SDLeaf)
     return v
 end
 
-keys(  v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? KT[] : [v.key]
+keys(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? Tuple{}[] : [()]
 values(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? VT[] : [v.root[v.key]]
 length(v::SDLeaf) = is_stale(v) ? 0 : 1
-haskey(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = !is_stale(v) && (v.key == key)
+haskey(v::SDLeaf{KT, VT}, key::Tuple) where {KT, VT} = !is_stale(v)  &&  (key == Tuple{}())
 depth( v::SDLeaf{KT, VT}) where {KT, VT} = fieldcount(KT)
 is_leaf_level(::SDLeaf) = true
 is_stale(v::SDLeaf) = !haskey(v.root.lookup, v.key)
@@ -325,15 +325,12 @@ function parent(v::SDLeaf{KT, VT}) where {KT, VT}
 end
 
 function iterate(v::SDLeaf, state=nothing)
-    (isnothing(state) && !is_stale(v)) && (return (v.key => v.root[v.key], 1))
+    (isnothing(state) && !is_stale(v)) && (return (Tuple{}() => v.root[v.key], 1))
     return nothing
 end
 
-getindex(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = (@assert v.key == key; v.root[v.key])
-getindex(v::SDLeaf{KT, VT}, key)     where {KT, VT} = getindex(v, (key,))
-
-setindex!(v::SDLeaf{KT, VT}, value, key::KT) where {KT, VT} = (@assert !is_stale(v); @assert v.key == key; v.root[v.key] = value; value)
-setindex!(v::SDLeaf{KT, VT}, value, key)     where {KT, VT} = (@assert !is_stale(v); setindex!(v, value, (key,)))
+getindex(v::SDLeaf{KT, VT}, key::Tuple{})         where {KT, VT} = (@assert !is_stale(v); v.root[v.key])
+setindex!(v::SDLeaf{KT, VT}, value, key::Tuple{}) where {KT, VT} = (@assert !is_stale(v); v.root[v.key] = value; value)
 
 
 # ------------------------------------------------------------------------------
@@ -409,7 +406,7 @@ children(::SDLeaf) = ()
 
 printnode(io::IO, d::SDTree) = print(io, "SDTree (Root)")
 printnode(io::IO, v::SDBranch) = print(io, repr(v.prefix[end]))
-printnode(io::IO, e::SDLeaf) = print(io, repr(e.key[end]), " => ", repr(e[e.key]))
+printnode(io::IO, e::SDLeaf) = print(io, repr(e.key[end]), " => ", repr(e[()]))
 
 
 # ------------------------------------------------------------------------------
