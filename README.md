@@ -193,33 +193,44 @@ keys(part_mass, 1)
 
 True $O(1)$ complexity means that elapsed time during operations remains constant regardless of the dataset's size.  In the real world, however, it is difficult to empirically verify such statement due to a number of optimizations occurring at different levels (compiler, operating system, CPU cache, etc.)
 
-The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion and an update using `SDTree`, and compare the corresponding times obtained with the standard `Dict`.  The example covers the cases N=1,000 and N=1,000,000 datasets.
+The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete and using `SDTree`, and compare the corresponding times obtained with the standard `Dict`.  It also measure the performance for pruning operations (only for `SDTree`).  The example covers the cases N=1,000 and N=1,000,000 datasets.
 ```
 julia> include("test/check_performance.jl")
 --- Generate small (N=1,000) and large (N=1,000,000) datasets ---
 
 --- Test lookups ---
-Dict       (N=    1000), Avg. time:   60.1 ns, Allocated: 0 MB
-Dict       (N= 1000000), Avg. time:  115.6 ns, Allocated: 0 MB
-SDTree     (N=    1000), Avg. time:   81.0 ns, Allocated: 0 MB
-SDTree     (N= 1000000), Avg. time:  118.4 ns, Allocated: 0 MB
-
---- Test insertion ---
-Dict       (N=    1000), Avg. time:   58.9 ns, Allocated: 0 MB
-Dict       (N= 1000000), Avg. time:  254.3 ns, Allocated: 132 MB
-SDTree     (N=    1000), Avg. time:  289.8 ns, Allocated: 1 MB
-SDTree     (N= 1000000), Avg. time: 1855.3 ns, Allocated: 705 MB
+Dict       (N=    1000), Avg. time:      0.069 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.111 μs, Allocated:    0 MB
+SDTree     (N=    1000), Avg. time:      0.092 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      0.137 μs, Allocated:    0 MB
 
 --- Test update ---
-Dict       (N=    1000), Avg. time:   72.2 ns, Allocated: 0 MB
-Dict       (N= 1000000), Avg. time:  160.5 ns, Allocated: 0 MB
-SDTree     (N=    1000), Avg. time:  105.6 ns, Allocated: 0 MB
-SDTree     (N= 1000000), Avg. time:  215.4 ns, Allocated: 0 MB
+Dict       (N=    1000), Avg. time:      0.081 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.162 μs, Allocated:    0 MB
+SDTree     (N=    1000), Avg. time:      0.117 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      0.226 μs, Allocated:    0 MB
+
+--- Test insertion ---
+Dict       (N=    1000), Avg. time:      0.081 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.242 μs, Allocated:  132 MB
+SDTree     (N=    1000), Avg. time:      0.333 μs, Allocated:    1 MB
+SDTree     (N= 1000000), Avg. time:      0.988 μs, Allocated:  705 MB
+
+--- Test delete ---
+Dict       (N=    1000, deleted   100 entries), Avg. time:      0.236 μs, Allocated:    0 MB
+Dict       (N= 1000000, deleted   100 entries), Avg. time:      0.275 μs, Allocated:    0 MB
+SDTree     (N=    1000, deleted   100 entries), Avg. time:     53.539 μs, Allocated:    0 MB
+SDTree     (N= 1000000, deleted   100 entries), Avg. time: 183867.093 μs, Allocated:   29 MB
+
+--- Test prune ---
+SDTree     (N=    1000, deleted    10 entries), Avg. time:     16.394 μs, Allocated:    0 MB
+SDTree     (N= 1000000, deleted 10000 entries), Avg. time:     46.991 μs, Allocated:    0 MB
+(pruning is not supported by Dict ...)
 ```
 
-As expected, both lookup and update operations do not require any allocation, and the averaged elapsed times scale approximately like `Dict` ones.  For insertions the performance for `SDTree` scale slightly worse than `Dict` due to the amount of internal structures to be updated to keep track of all newly inserted keys.
-
-
+As expected, the averaged elapsed times for lookups, updates, and insertions scale approximately like the `Dict` ones. Also, for lookups and updates, no memory allocation is performed.
+ 
+Deletion, on the other hand, scales much worse than `Dict` and requires allocating memory for the temporary data used to update internal references.  Finally, pruning is significantly more efficient since it allows you to eliminate many entries at once and subsequently batch-update the internal references.
 
 ## Disclaimer
 
