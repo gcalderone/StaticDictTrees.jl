@@ -222,44 +222,58 @@ keys(part_mass, 1)
 
 True $O(1)$ complexity means that elapsed time during operations remains constant regardless of the dataset's size.  In the real world, however, it is difficult to empirically verify such statement due to a number of optimizations occurring at different levels (compiler, operating system, CPU cache, etc.)
 
-The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete and using `SDTree`, and compare the corresponding times obtained with the standard `Dict`.  It also measures the performance for pruning operations (only for `SDTree`).  The example covers the cases N=1,000 and N=1,000,000 datasets.
+The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete using `SDTree` and a view on it (`SDBranch`), as well as compare the corresponding times obtained with the standard `Dict`.  It also measures the performance for pruning operations (only for `SDTree` and `SDBranch`).  The example covers the cases N=1,000 and N=1,000,000 datasets.
 ```
 julia> include("test/check_performance.jl")
---- Generate small (N=1,000) and large (N=1,000,000) datasets ---
+--- Generate small (N=1,000) and large (N=1,000,000) datasets, and corresponding views containing half the entries ---
 
 --- Test lookups ---
-Dict       (N=    1000), Avg. time:      0.069 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.111 μs, Allocated:    0 MB
-SDTree     (N=    1000), Avg. time:      0.092 μs, Allocated:    0 MB
-SDTree     (N= 1000000), Avg. time:      0.137 μs, Allocated:    0 MB
+Dict       (N=    1000), Avg. time:      0.093 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.137 μs, Allocated:    0 MB
+SDTree     (N=    1000), Avg. time:      0.097 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      0.138 μs, Allocated:    0 MB
+SDBranch   (N=     500), Avg. time:      0.105 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      0.181 μs, Allocated:    0 MB
 
 --- Test update ---
-Dict       (N=    1000), Avg. time:      0.081 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.162 μs, Allocated:    0 MB
-SDTree     (N=    1000), Avg. time:      0.117 μs, Allocated:    0 MB
-SDTree     (N= 1000000), Avg. time:      0.226 μs, Allocated:    0 MB
+Dict       (N=    1000), Avg. time:      0.088 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.191 μs, Allocated:    0 MB
+SDTree     (N=    1000), Avg. time:      0.193 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      0.263 μs, Allocated:    0 MB
+SDBranch   (N=     500), Avg. time:      0.183 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      0.255 μs, Allocated:    0 MB
 
 --- Test insertion ---
-Dict       (N=    1000), Avg. time:      0.081 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.242 μs, Allocated:  132 MB
-SDTree     (N=    1000), Avg. time:      0.333 μs, Allocated:    1 MB
-SDTree     (N= 1000000), Avg. time:      0.988 μs, Allocated:  705 MB
+Dict       (N=    1000), Avg. time:      0.053 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.244 μs, Allocated:  164 MB
+SDTree     (N=    1000), Avg. time:      0.593 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      1.566 μs, Allocated:  557 MB
+SDBranch   (N=     500), Avg. time:      1.154 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      2.111 μs, Allocated:  313 MB
 
 --- Test delete ---
-Dict       (N=    1000, deleted   100 entries), Avg. time:      0.236 μs, Allocated:    0 MB
-Dict       (N= 1000000, deleted   100 entries), Avg. time:      0.275 μs, Allocated:    0 MB
-SDTree     (N=    1000, deleted   100 entries), Avg. time:     53.539 μs, Allocated:    0 MB
-SDTree     (N= 1000000, deleted   100 entries), Avg. time: 183867.093 μs, Allocated:   29 MB
+Dict       (N=    1000, deleted    100 entries), Avg. time:      0.230 μs, Allocated:    0 MB
+Dict       (N= 1000000, deleted    100 entries), Avg. time:      0.329 μs, Allocated:    0 MB
+SDTree     (N=    1000, deleted    100 entries), Avg. time:     81.270 μs, Allocated:    4 MB
+SDTree     (N= 1000000, deleted    100 entries), Avg. time: 351446.733 μs, Allocated: 3470 MB
+SDBranch   (N=     500, deleted    100 entries), Avg. time:     79.777 μs, Allocated:    3 MB
+SDBranch   (N=  500000, deleted    100 entries), Avg. time: 355157.578 μs, Allocated: 3470 MB
 
 --- Test prune ---
-SDTree     (N=    1000, deleted    10 entries), Avg. time:     16.394 μs, Allocated:    0 MB
-SDTree     (N= 1000000, deleted 10000 entries), Avg. time:     46.991 μs, Allocated:    0 MB
+SDTree     (N=    1000, deleted    500 entries), Avg. time:      0.834 μs, Allocated:    0 MB
+SDTree     (N= 1000000, deleted 500000 entries), Avg. time:      1.953 μs, Allocated:   19 MB
+SDBranch   (N=     500, deleted    500 entries), Avg. time:      0.940 μs, Allocated:    0 MB
+SDBranch   (N=  500000, deleted 500000 entries), Avg. time:      2.049 μs, Allocated:   19 MB
 (pruning is not supported by Dict ...)
 ```
 
-As expected, the averaged elapsed times for lookups, updates, and insertions scale approximately like the `Dict` ones. Also, for lookups and updates, no memory allocation is performed.
+As expected, the average elapsed times for lookups, updates, and insertions on an `SDTree` scale similarly to a standard `Dict`. Furthermore, lookups and updates require strictly zero memory allocations.
 
-Deletion, on the other hand, scales much worse than `Dict` and requires allocating memory for the temporary data used to update internal references.  Finally, pruning is significantly more efficient since it allows you to eliminate many entries at once and subsequently batch-update the internal references.
+Single-item deletion, on the other hand, scales much worse than `Dict` and requires allocating memory for the temporary data used to update internal references. However, pruning is significantly more efficient, as it allows you to eliminate many entries at once and subsequently batch-update the internal references.
+
+Additionally, the performance of zero-allocation views (`SDBranch`) is nearly identical to operating directly on the root `SDTree`.
+
+Ultimately, these results show that the distinctive feature provided by `SDTree` and `SDBranch` —namely, the ability to isolate and operate on sub-branches of a tree— comes at the cost of poor performance when deleting individual entries.  While the `Dict` structure, albeit unable to isolate a branch, provides excellent performance also when deleting entries.
 
 ## Disclaimer
 
