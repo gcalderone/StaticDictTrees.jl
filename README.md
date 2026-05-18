@@ -36,7 +36,7 @@ println(leptons[:electron])
 
 `StaticDictTrees` provides a suitable data structure in the following cases:
 
-- You need something similar to a multi-dimentional sparse array whose indexing is based on a generic `Tuple`, rather than a tuple of integers;
+- You need something similar to a multi-dimensional sparse array whose indexing is based on a generic `Tuple`, rather than a tuple of integers;
 
 - You need a `Dict` with `Tuple` keys, but you also need to quickly access data based on an incomplete key (branch);
 
@@ -99,6 +99,34 @@ v[:electron_neutrino] = NaN
 
 part_mass[:Fermion, :Lepton, :electron_neutrino]
 # NaN
+```
+
+### Stale Views and Safe Fallbacks
+
+`StaticDictTrees` views hold direct memory references to the parent tree.
+
+When the underlying data is removed from the parent tree by meant of `delete!`, `prune!` or `empty!` the view safely transitions into a **stale** state, namely a state in which the stale view acts as an empty collection (length 0, empty iterators) and prevents unhandled memory errors. You can manually check this state using the `is_stale()` function:
+
+```julia
+# Create a view
+v = view(part_mass, (:Boson, :Scalar))
+
+# Destroy the data from the parent tree
+prune!(part_mass, (:Boson, :Scalar))
+
+# The view is now safely stale
+println(is_stale(v))
+# true
+
+println(length(v))
+# 0
+
+# Restore the deleted entry
+part_mass[:Boson, :Scalar, :Higgs] = 4.
+
+# The view is still stale
+println(is_stale(v))
+# true
 ```
 
 
@@ -194,7 +222,7 @@ keys(part_mass, 1)
 
 True $O(1)$ complexity means that elapsed time during operations remains constant regardless of the dataset's size.  In the real world, however, it is difficult to empirically verify such statement due to a number of optimizations occurring at different levels (compiler, operating system, CPU cache, etc.)
 
-The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete and using `SDTree`, and compare the corresponding times obtained with the standard `Dict`.  It also measure the performance for pruning operations (only for `SDTree`).  The example covers the cases N=1,000 and N=1,000,000 datasets.
+The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete and using `SDTree`, and compare the corresponding times obtained with the standard `Dict`.  It also measures the performance for pruning operations (only for `SDTree`).  The example covers the cases N=1,000 and N=1,000,000 datasets.
 ```
 julia> include("test/check_performance.jl")
 --- Generate small (N=1,000) and large (N=1,000,000) datasets ---
@@ -230,7 +258,7 @@ SDTree     (N= 1000000, deleted 10000 entries), Avg. time:     46.991 μs, Alloc
 ```
 
 As expected, the averaged elapsed times for lookups, updates, and insertions scale approximately like the `Dict` ones. Also, for lookups and updates, no memory allocation is performed.
- 
+
 Deletion, on the other hand, scales much worse than `Dict` and requires allocating memory for the temporary data used to update internal references.  Finally, pruning is significantly more efficient since it allows you to eliminate many entries at once and subsequently batch-update the internal references.
 
 ## Disclaimer

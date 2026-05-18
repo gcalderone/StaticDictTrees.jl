@@ -254,10 +254,10 @@ is_leaf_level(::SDBranch{KT, PT, ST}) where {KT, PT, ST <: Tuple} = fieldcount(S
 
 Check whether a branch or leaf view has become stale (invalidated).
 
-A view becomes stale when the underlying data it points to in the parent `SDTree` 
-is deleted, typically via a call to `empty!(parent)` or `prune!(parent, ...)`. 
+A view becomes stale when the underlying data it points to in the parent `SDTree`
+is deleted, typically via a call to `empty!(parent)` or `prune!(parent, ...)`.
 
-Returns `true` if the underlying data has been destroyed. A stale view safely 
+Returns `true` if the underlying data has been destroyed. A stale view safely
 acts as an empty collection (length 0, empty iterators) and should no longer be mutated.
 """
 is_stale(v::SDBranch) = length(v.node) == 0
@@ -291,8 +291,8 @@ getindex(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = v.parent
 getindex(v::SDBranch{KT, PT, ST, VT}, key)     where {KT, PT, ST, VT} = getindex(v, (key,))
 
 # Insertion logic
-setindex!(v::SDBranch{KT, PT, ST, VT}, value, key::ST) where {KT, PT, ST, VT} = (v.parent[(v.prefix..., key...)] = value; value)
-setindex!(v::SDBranch{KT, PT, ST, VT}, value, key)     where {KT, PT, ST, VT} = setindex!(v, value, (key,))
+setindex!(v::SDBranch{KT, PT, ST, VT}, value, key::ST) where {KT, PT, ST, VT} = (@assert !is_stale(v); v.parent[(v.prefix..., key...)] = value; value)
+setindex!(v::SDBranch{KT, PT, ST, VT}, value, key)     where {KT, PT, ST, VT} = (@assert !is_stale(v); setindex!(v, value, (key,)))
 
 
 # ------------------------------------------------------------------------------
@@ -332,8 +332,8 @@ end
 getindex(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = (@assert v.key == key; v.parent[v.key])
 getindex(v::SDLeaf{KT, VT}, key)     where {KT, VT} = getindex(v, (key,))
 
-setindex!(v::SDLeaf{KT, VT}, value, key::KT) where {KT, VT} = (@assert v.key == key; v.parent[v.key] = value; value)
-setindex!(v::SDLeaf{KT, VT}, value, key)     where {KT, VT} = setindex!(v, value, (key,))
+setindex!(v::SDLeaf{KT, VT}, value, key::KT) where {KT, VT} = (@assert !is_stale(v); @assert v.key == key; v.parent[v.key] = value; value)
+setindex!(v::SDLeaf{KT, VT}, value, key)     where {KT, VT} = (@assert !is_stale(v); setindex!(v, value, (key,)))
 
 
 # ------------------------------------------------------------------------------

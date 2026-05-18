@@ -20,6 +20,11 @@ using AbstractTrees
         @test !haskey(dt, (3, :unknown, "test"))
         @test dt[1, :server, "latency"] == 12.5
 
+        # Update an existing key
+        dt[1, :server, "latency"] = 5.0
+        @test length(dt) == 3 # Length should NOT increase
+        @test dt[1, :server, "latency"] == 5.0
+
         # Pair/Dict constructors
         dt2 = SDTree((1, :a) => 10, (2, :b) => 20)
         @test length(dt2) == 2
@@ -198,12 +203,26 @@ using AbstractTrees
         @test !haskey(dt, (1, :a))
         @test dt[1, :b] == 20.0 # Ensure indices shifted correctly!
 
+        # delete! via a branch view
+        dt[5, :p] = 60.0
+        dt[5, :q] = 70.0
+        br5 = view(dt, 5)
+        delete!(br5, (:p,))
+        @test length(dt) == 3
+        @test !haskey(dt, (5, :p))
+        @test haskey(dt, (5, :q))
+
+        # Single-element prune! fallback (no tuple wrapper)
+        dt[6, :r] = 80.0
+        prune!(dt, 6) # passing Int directly instead of (6,)
+        @test !haskey(dt, (6, :r))
+
         # prune!
         dt[3, :x] = 100.0
         dt[3, :y] = 200.0
 
         prune!(dt, (3,))
-        @test length(dt) == 2
+        @test length(dt) == 3
         @test !haskey(dt, (3, :x))
         @test !haskey(dt, (3, :y))
 
@@ -267,6 +286,21 @@ using AbstractTrees
         empty!(dt2)
         @test is_stale(v2)
         @test length(v2) == 0
+
+        # Test empty! on a branch view
+        dt3 = SDTree((:Level1, :A) => 1.0, (:Level1, :B) => 2.0, (:Level2, :C) => 3.0)
+        v3 = view(dt3, (:Level1,))
+        empty!(v3)
+        @test is_stale(v3)
+        @test length(dt3) == 1 # Only (:Level2, :C) should remain
+        @test !haskey(dt3, (:Level1, :A))
+
+        # Test empty! on a leaf view
+        dt4 = SDTree((:Single, :Leaf) => 1.0)
+        v4 = view(dt4, (:Single, :Leaf))
+        empty!(v4)
+        @test is_stale(v4)
+        @test length(dt4) == 0
     end
 
     @testset "AbstractTrees Integration" begin
