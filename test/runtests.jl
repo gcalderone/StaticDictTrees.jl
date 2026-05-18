@@ -5,12 +5,12 @@ using AbstractTrees
 @testset "StaticDictTrees.jl" begin
 
     @testset "Constructors and Basic Dict API" begin
-        # 1. Empty initialization
+        # Empty initialization
         dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
         @test isempty(dt)
         @test length(dt) == 0
 
-        # 2. Insertion and getindex
+        # Insertion and getindex
         dt[1, :server, "latency"] = 12.5
         dt[(1, :server, "uptime")] = 99.9
         dt[2, :local, "cache"] = 2.1
@@ -20,7 +20,7 @@ using AbstractTrees
         @test !haskey(dt, (3, :unknown, "test"))
         @test dt[1, :server, "latency"] == 12.5
 
-        # 3. Pair/Dict constructors
+        # Pair/Dict constructors
         dt2 = SDTree((1, :a) => 10, (2, :b) => 20)
         @test length(dt2) == 2
         @test dt2[1, :a] == 10
@@ -29,7 +29,7 @@ using AbstractTrees
         @test length(dt3) == 2
         @test dt3[2, :b] == 20
 
-        # 4. empty!
+        # empty!
         empty!(dt2)
         @test length(dt2) == 0
         @test isempty(dt2.keys) && isempty(dt2.values)
@@ -71,17 +71,17 @@ using AbstractTrees
         dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
         dt[1, :server, "latency"] = 12.5
 
-        # 1. view from Tree
+        # view from Tree
         v1 = view(dt, 1) # Auto-tuple fallback
         @test v1 isa SDBranch
         @test depth(v1) == 1
 
-        # 2. view from Branch
+        # view from Branch
         v2 = view(v1, :server)
         @test v2 isa SDBranch
         @test depth(v2) == 2
 
-        # 3. View to Leaf
+        # View to Leaf
         lf1 = view(v2, "latency")
         @test lf1 isa SDLeaf
         @test lf1.key == (1, :server, "latency")
@@ -89,11 +89,11 @@ using AbstractTrees
         lf2 = view(dt, (1, :server, "latency"))
         @test lf2 isa SDLeaf
 
-        # 4. View bounds checking
+        # View bounds checking
         @test_throws ArgumentError view(dt, (1, :server, "latency", "extra"))
         @test_throws ArgumentError view(v1, (:server, "latency", "extra"))
 
-        # 5. Mutation via views updates the underlying flat array
+        # Mutation via views updates the underlying flat array
         v2["latency"] = 99.0
         @test dt[1, :server, "latency"] == 99.0
 
@@ -217,12 +217,64 @@ using AbstractTrees
         @test haskey(dt, (4, :n))
     end
 
+    @testset "Stale Views" begin
+        # Setup a fresh tree
+        dt = SDTree((:A, :B, :C) => 1.0,
+                    (:A, :B, :D) => 2.0,
+                    (:X, :Y, :Z) => 3.0)
+
+        # Take views
+        branch_v = view(dt, (:A, :B))
+        leaf_v   = view(dt, (:A, :B, :C))
+
+        # Initial State
+        @test !is_stale(branch_v)
+        @test !is_stale(leaf_v)
+        @test length(branch_v) == 2
+        @test length(leaf_v) == 1
+
+        # Pruning an unrelated branch shouldn't affect our views
+        prune!(dt, (:X,))
+        @test !is_stale(branch_v)
+        @test !is_stale(leaf_v)
+
+        # Prune the parent branch of our views
+        prune!(dt, (:A,))
+
+        # They should now instantly report as stale
+        @test is_stale(branch_v)
+        @test is_stale(leaf_v)
+
+        # Check safe fallback behaviors for the stale SDBranch
+        @test length(branch_v) == 0
+        @test isempty(collect(keys(branch_v)))
+        @test isempty(collect(values(branch_v)))
+        @test !haskey(branch_v, (:C,))
+        @test collect(branch_v) == [] # Iteration yields nothing
+
+        # Check safe fallback behaviors for the stale SDLeaf
+        @test length(leaf_v) == 0
+        @test isempty(collect(keys(leaf_v)))
+        @test isempty(collect(values(leaf_v)))
+        @test !haskey(leaf_v, (:A, :B, :C))
+        @test collect(leaf_v) == [] # Iteration yields nothing
+
+        # Test that `empty!` on the parent tree also makes views stale
+        dt2 = SDTree((:Fermion, :Quark) => 2.2)
+        v2 = view(dt2, (:Fermion,))
+
+        @test !is_stale(v2)
+        empty!(dt2)
+        @test is_stale(v2)
+        @test length(v2) == 0
+    end
+
     @testset "AbstractTrees Integration" begin
         dt = SDTree{Tuple{Int, Symbol}, Float64}()
         dt[1, :a] = 10.0
         dt[1, :b] = 20.0
 
-        # 1. Children API
+        # Children API
         c_root = children(dt)
         @test length(c_root) == 1
         @test c_root[1] isa SDBranch
@@ -233,7 +285,7 @@ using AbstractTrees
 
         @test isempty(children(c_branch[1])) # Leaves have no children by default
 
-        # 2. Print formatting (Capture REPL output)
+        # Print formatting (Capture REPL output)
         out_str = sprint(print_tree, dt)
 
         @test occursin("SDTree (Root)", out_str)
@@ -241,7 +293,7 @@ using AbstractTrees
         @test occursin(":a => 10.0", out_str)
         @test occursin(":b => 20.0", out_str)
 
-        # 3. Collection expansion fallback
+        # Collection expansion fallback
         dt_nested = SDTree{Tuple{Int}, Vector{Int}}()
         dt_nested[1] = [99, 100]
 
