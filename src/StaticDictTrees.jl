@@ -213,7 +213,7 @@ A `SDBranch` holds a direct memory pointer to the parent tree's internal caches.
 * `KeyError`: If the provided `prefix` does not exist in the parent tree.
 """
 struct SDBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractSDTree{ST, VT}
-    parent::SDTree{KT, VT}
+    root::SDTree{KT, VT}
     prefix::PT
     node::OrderedDict{ST, Int}
 
@@ -232,7 +232,7 @@ struct SDBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractSDTree{ST, VT}
     end
 end
 
-SDBranch(v::SDBranch, prefix::Tuple) = SDBranch(v.parent, (v.prefix..., prefix...))
+SDBranch(v::SDBranch, prefix::Tuple) = SDBranch(v.root, (v.prefix..., prefix...))
 
 function empty!(v::SDBranch)
     for k in collect(keys(v.node))
@@ -242,7 +242,7 @@ function empty!(v::SDBranch)
 end
 
 keys(  v::SDBranch) = keys(v.node)
-values(v::SDBranch) = (v.parent.values[i] for i in values(v.node))
+values(v::SDBranch) = (v.root.values[i] for i in values(v.node))
 length(v::SDBranch) = length(v.node)
 haskey(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = haskey(v.node, key)
 depth(  ::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = fieldcount(PT)
@@ -276,22 +276,22 @@ function keys(v::SDBranch{KT, PT, ST, VT}, level::Int) where {KT, PT, ST, VT}
 end
 
 function parent(v::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT}
-    (fieldcount(PT) == 1) && return v.parent
-    return SDBranch(v.parent, v.prefix[1:(end-1)])
+    (fieldcount(PT) == 1) && return v.root
+    return SDBranch(v.root, v.prefix[1:(end-1)])
 end
 
 function iterate(v::SDBranch, state=nothing)
     res = state === nothing ? iterate(v.node) : iterate(v.node, state)
     res === nothing && return nothing
     (key, idx), next_state = res
-    return (key => v.parent.values[idx], next_state)
+    return (key => v.root.values[idx], next_state)
 end
 
-getindex(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = v.parent.values[v.node[key]]
+getindex(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = v.root.values[v.node[key]]
 getindex(v::SDBranch{KT, PT, ST, VT}, key)     where {KT, PT, ST, VT} = getindex(v, (key,))
 
 # Insertion logic
-setindex!(v::SDBranch{KT, PT, ST, VT}, value, key::ST) where {KT, PT, ST, VT} = (@assert !is_stale(v); v.parent[(v.prefix..., key...)] = value; value)
+setindex!(v::SDBranch{KT, PT, ST, VT}, value, key::ST) where {KT, PT, ST, VT} = (@assert !is_stale(v); v.root[(v.prefix..., key...)] = value; value)
 setindex!(v::SDBranch{KT, PT, ST, VT}, value, key)     where {KT, PT, ST, VT} = (@assert !is_stale(v); setindex!(v, value, (key,)))
 
 
@@ -299,40 +299,40 @@ setindex!(v::SDBranch{KT, PT, ST, VT}, value, key)     where {KT, PT, ST, VT} = 
 # SDLeaf structure
 # ------------------------------------------------------------------------------
 struct SDLeaf{KT, VT} <: AbstractSDTree{KT, VT}
-    parent::SDTree{KT, VT}
+    root::SDTree{KT, VT}
     key::KT
 
     SDLeaf(d::SDTree{KT, VT}, key::KT) where {KT, VT} = new{KT, VT}(d, key)
-    SDLeaf(v::SDBranch{KT, PT, ST, VT}, suffix::ST) where {KT, PT, ST, VT} = new{KT, VT}(v.parent, (v.prefix..., suffix...))
+    SDLeaf(v::SDBranch{KT, PT, ST, VT}, suffix::ST) where {KT, PT, ST, VT} = new{KT, VT}(v.root, (v.prefix..., suffix...))
 end
 
 function empty!(v::SDLeaf)
-    delete!(v.parent, v.key)
+    delete!(v.root, v.key)
     return v
 end
 
 keys(  v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? KT[] : [v.key]
-values(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? VT[] : [v.parent[v.key]]
+values(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? VT[] : [v.root[v.key]]
 length(v::SDLeaf) = is_stale(v) ? 0 : 1
 haskey(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = !is_stale(v) && (v.key == key)
 depth( v::SDLeaf{KT, VT}) where {KT, VT} = fieldcount(KT)
 is_leaf_level(::SDLeaf) = true
-is_stale(v::SDLeaf) = !haskey(v.parent.lookup, v.key)
+is_stale(v::SDLeaf) = !haskey(v.root.lookup, v.key)
 
 function parent(v::SDLeaf{KT, VT}) where {KT, VT}
-    (fieldcount(KT) == 1) && return v.parent
-    return SDBranch(v.parent, v.key[1:(end-1)])
+    (fieldcount(KT) == 1) && return v.root
+    return SDBranch(v.root, v.key[1:(end-1)])
 end
 
 function iterate(v::SDLeaf, state=nothing)
-    (isnothing(state) && !is_stale(v)) && (return (v.key => v.parent[v.key], 1))
+    (isnothing(state) && !is_stale(v)) && (return (v.key => v.root[v.key], 1))
     return nothing
 end
 
-getindex(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = (@assert v.key == key; v.parent[v.key])
+getindex(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = (@assert v.key == key; v.root[v.key])
 getindex(v::SDLeaf{KT, VT}, key)     where {KT, VT} = getindex(v, (key,))
 
-setindex!(v::SDLeaf{KT, VT}, value, key::KT) where {KT, VT} = (@assert !is_stale(v); @assert v.key == key; v.parent[v.key] = value; value)
+setindex!(v::SDLeaf{KT, VT}, value, key::KT) where {KT, VT} = (@assert !is_stale(v); @assert v.key == key; v.root[v.key] = value; value)
 setindex!(v::SDLeaf{KT, VT}, value, key)     where {KT, VT} = (@assert !is_stale(v); setindex!(v, value, (key,)))
 
 
@@ -371,9 +371,9 @@ function view(v::SDBranch{KT, PT, ST, VT}, suffix::Tuple) where {KT, PT, ST, VT}
     L = length(full_prefix)
 
     if L < N
-        return SDBranch(v.parent, full_prefix)
+        return SDBranch(v.root, full_prefix)
     elseif L == N
-        return SDLeaf(v.parent, convert(KT, full_prefix))
+        return SDLeaf(v.root, convert(KT, full_prefix))
     else
         throw(ArgumentError("Combined prefix length ($L) exceeds tree depth ($N)."))
     end
@@ -398,10 +398,10 @@ end
 
 function children(v::SDBranch{KT}) where {KT <: Tuple}
     if is_leaf_level(v)
-        return [SDLeaf(v.parent, (v.prefix..., k...)) for k in sort(collect(keys(v.node)))]
+        return [SDLeaf(v.root, (v.prefix..., k...)) for k in sort(collect(keys(v.node)))]
     else
         unique_next_steps = unique(k[1] for k in keys(v.node))
-        return [SDBranch(v.parent, (v.prefix..., step)) for step in sort(unique_next_steps)]
+        return [SDBranch(v.root, (v.prefix..., step)) for step in sort(unique_next_steps)]
     end
 end
 

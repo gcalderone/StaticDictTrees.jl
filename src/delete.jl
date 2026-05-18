@@ -66,5 +66,5 @@ function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
     return d
 end
 
-delete!(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = delete!(v.parent, (v.prefix..., key...))
+delete!(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = delete!(v.root, (v.prefix..., key...))
 delete!(d::AbstractSDTree, key) = prune!(d, (key,))

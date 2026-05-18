@@ -90,7 +90,7 @@ function prune!(d::SDTree{KT, VT}, path::PT) where {KT <: Tuple, VT, PT <: Tuple
 end
 
 function prune!(v::SDBranch, path::Tuple)
-    prune!(v.parent, (v.prefix..., path...))
+    prune!(v.root, (v.prefix..., path...))
     return v
 end
 
