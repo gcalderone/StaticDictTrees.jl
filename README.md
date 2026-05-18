@@ -42,7 +42,7 @@ println(leptons[:electron])
 
 - You need to implement an in-memory database index based on a composite primary key;
 
-- You need to represent a tree with fixed depth, and to walk it sequentially
+- You need to represent a tree with fixed depth, and to walk it sequentially.
 
 ## Features
 
@@ -59,6 +59,7 @@ The dictionary tree provided by `StaticDictTree` has a constant (*static*, hence
 
 If you need a variable depth tree consider using a [`Trie`](https://juliacollections.github.io/DataStructures.jl/stable/trie/) structure.
 
+Also note that the key type must be a `Tuple`.  If you need just a simple `Symbol` or `Int` as key you'll need to use a `Tuple{Symbol}` or `Tuple{Int}` as key, or you may consider using an [`OrderedDict](https://juliacollections.github.io/DataStructures.jl/stable/ordered_containers/) which would provide the same functionalities.
 
 ## Installation
 
