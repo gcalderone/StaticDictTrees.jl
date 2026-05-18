@@ -3,7 +3,7 @@ module StaticDictTrees
 using DataStructures
 
 import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, delete!, view
-export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth
+export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale
 
 #=
 Conventions:
@@ -65,8 +65,11 @@ function empty!(d::SDTree)
     empty!(d.keys)
     empty!(d.values)
     empty!(d.lookup)
-    for d in d.branch_lookup
-        empty!(d)
+    for level_dict in d.branch_lookup
+        for (k, v) in level_dict
+            empty!(v)
+        end
+        empty!(level_dict)
     end
     return d
 end
@@ -78,7 +81,6 @@ haskey(d::SDTree{KT, VT}, key::KT) where {KT, VT} = haskey(d.lookup, key)
 depth( d::SDTree{KT, VT}) where {KT, VT} = fieldcount(KT)
 is_leaf_level(::SDTree{KT}) where {KT <: Tuple} = fieldcount(KT) == 1
 
-# Customized keys()
 """
     keys(d::SDTree, level::Int)
     keys(v::SDBranch, level::Int)
@@ -243,10 +245,23 @@ keys(  v::SDBranch) = keys(v.node)
 values(v::SDBranch) = (v.parent.values[i] for i in values(v.node))
 length(v::SDBranch) = length(v.node)
 haskey(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = haskey(v.node, key)
-depth( d::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = fieldcount(PT)
+depth(  ::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = fieldcount(PT)
 is_leaf_level(::SDBranch{KT, PT, ST}) where {KT, PT, ST <: Tuple} = fieldcount(ST) == 1
 
-# Customized keys
+"""
+    is_stale(v::SDBranch)
+    is_stale(v::SDLeaf)
+
+Check whether a branch or leaf view has become stale (invalidated).
+
+A view becomes stale when the underlying data it points to in the parent `SDTree` 
+is deleted, typically via a call to `empty!(parent)` or `prune!(parent, ...)`. 
+
+Returns `true` if the underlying data has been destroyed. A stale view safely 
+acts as an empty collection (length 0, empty iterators) and should no longer be mutated.
+"""
+is_stale(v::SDBranch) = length(v.node) == 0
+
 function keys(v::SDBranch{KT, PT, ST, VT}, level::Int) where {KT, PT, ST, VT}
     max_level = fieldcount(ST)
 
@@ -293,15 +308,16 @@ end
 
 function empty!(v::SDLeaf)
     delete!(v.parent, v.key)
-    return nothing
+    return v
 end
 
-keys(  v::SDLeaf) = [v.key]
-values(v::SDLeaf) = [v.parent[v.key]]
-length(v::SDLeaf) = 1
-haskey(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = (v.key == key)
+keys(  v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? KT[] : [v.key]
+values(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? VT[] : [v.parent[v.key]]
+length(v::SDLeaf) = is_stale(v) ? 0 : 1
+haskey(v::SDLeaf{KT, VT}, key::KT) where {KT, VT} = !is_stale(v) && (v.key == key)
 depth( v::SDLeaf{KT, VT}) where {KT, VT} = fieldcount(KT)
 is_leaf_level(::SDLeaf) = true
+is_stale(v::SDLeaf) = !haskey(v.parent.lookup, v.key)
 
 function parent(v::SDLeaf{KT, VT}) where {KT, VT}
     (fieldcount(KT) == 1) && return v.parent
@@ -309,7 +325,7 @@ function parent(v::SDLeaf{KT, VT}) where {KT, VT}
 end
 
 function iterate(v::SDLeaf, state=nothing)
-    isnothing(state)  &&  (return (v.key => v.parent[v.key], 1))
+    (isnothing(state) && !is_stale(v)) && (return (v.key => v.parent[v.key], 1))
     return nothing
 end
 
