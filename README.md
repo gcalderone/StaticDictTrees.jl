@@ -154,7 +154,7 @@ length(part_mass)
 
 Also, `StaticDictTrees.jl` implements the `AbstractTrees.jl` interface to exploit all its functionalities. E.g. the automatic display looks as follows:
 ```julia
-julia> part_mass
+julia> dt
 SDTree{Tuple{Int64, Symbol, String}, Float64} with 3 entries:
 SDTree (Root)
 ├─ 1
@@ -202,6 +202,9 @@ collect(keys(fermions, 1))
 # Navigate upward from a specific view
 quarks = view(part_mass, (:Fermion, :Quark))
 fermions = parent(quarks)
+
+# Access to root SDTree structure
+part_mass === root(quarks)
 
 # Remove a specific leaf entry
 # (Note: to remove an entire branch at once, use `prune!` instead)

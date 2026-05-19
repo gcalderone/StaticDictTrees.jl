@@ -40,7 +40,7 @@ using AbstractTrees
         @test isempty(dt2.keys) && isempty(dt2.values)
     end
 
-    @testset "Tree Properties (depth, is_leaf_level, parent)" begin
+    @testset "Tree Properties (depth, is_leaf_level, parent, root)" begin
         dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
         dt[1, :server, "latency"] = 12.5
 
@@ -70,6 +70,16 @@ using AbstractTrees
         dt_flat = SDTree{Tuple{Int}, Float64}()
         @test is_leaf_level(dt_flat)
         @test parent(SDLeaf(dt_flat, (1,))) === dt_flat
+
+        # root traversal (using === to guarantee exact memory identity)
+        @test root(dt) === dt
+        @test root(br1) === dt
+        @test root(br2) === dt
+        @test root(lf) === dt
+        
+        # Test that `root` works on views created from other views
+        br_nested = view(br1, :server)
+        @test root(br_nested) === dt        
     end
 
     @testset "View Interface" begin
