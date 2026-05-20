@@ -1,7 +1,6 @@
 # ------------------------------------------------------------------------------
 # Deletion and pruning logic
 # ------------------------------------------------------------------------------
-
 @generated function _update_branch_on_delete!(d::SDTree{KT}, key::KT, key_to_update::KT, new_pos::Int) where {KT <: Tuple}
     N = fieldcount(KT)
     exprs = Expr[]
@@ -43,18 +42,16 @@ Removes a specific leaf `key` from the tree in O(1) time using the Swap-and-Pop 
 function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
     vacant_pos = get(d.lookup, key, nothing)
     isnothing(vacant_pos)  &&  return d
-    _invalidate_viewid(d)
 
     delete!(d.lookup, key)
+
     if vacant_pos == length(d.values)
-        # It's already the last element; just pop it
         pop!(d.keys)
         pop!(d.values)
         _update_branch_on_delete!(d, key, key, 0)
     else
-        # Overwrite index vacant_pos with the last element's data
-        key_to_keep = pop!(d.keys)
-        d.keys[  vacant_pos] = key_to_keep
+        key_to_keep = pop!(d.keys)        
+        d.keys[vacant_pos] = key_to_keep
         d.values[vacant_pos] = pop!(d.values)
         d.lookup[key_to_keep] = vacant_pos
         _update_branch_on_delete!(d, key, key_to_keep, vacant_pos)
@@ -64,4 +61,4 @@ function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
 end
 
 delete!(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = delete!(v.root, (v.prefix..., key...))
-delete!(d::AbstractSDTree, key) = delete!(d, (key,))
+delete!(d::AbstractSDTree, key) = prune!(d, (key,))
