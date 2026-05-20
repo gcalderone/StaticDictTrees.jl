@@ -2,7 +2,7 @@ module StaticDictTrees
 
 using DataStructures
 
-import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, delete!, view
+import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, delete!, view, sizehint!
 export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, values_view
 
 #=
@@ -235,10 +235,7 @@ function values_view(v::SDBranch)
     return view(v.root.values, v.viewid)
 end
 
-# Leaves just return a standard 1-element view of the array
 values_view(v::SDLeaf) = is_stale(v) ? view(v.root.values, 1:0) : view(v.root.values, v.root.lookup[v.key]:v.root.lookup[v.key])
-
-
 
 length(d::SDTree) = length(d.lookup)
 length(v::SDBranch) = length(v.lookup)
@@ -302,6 +299,22 @@ getindex(v::SDBranch{KT, PT, ST, VT}, key)     where {KT, PT, ST, VT} = getindex
 
 getindex(v::SDLeaf{KT, VT}, key::Tuple{})      where {KT, VT} = (@assert !is_stale(v); v.root[v.key])
 
+"""
+    sizehint!(d::SDTree, n::Integer)
+
+Suggest that the tree `d` reserve memory capacity for at least `n` elements.
+
+Calling `sizehint!` before performing large, bulk insertions pre-allocates the necessary memory blocks for the internal data structures, improving insertion performance.
+"""
+function sizehint!(d::SDTree{KT, VT}, n::Integer) where {KT, VT}
+    sizehint!(d.keys, n)
+    sizehint!(d.values, n)
+    sizehint!(d.lookup, n)
+    if !isempty(d.branch_lookup)
+        sizehint!(d.branch_lookup[1], n)
+    end
+    return d
+end
 
 # ------------------------------------------------------------------------------
 # View Integration
