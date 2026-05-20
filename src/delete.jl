@@ -1,7 +1,8 @@
 # ------------------------------------------------------------------------------
 # Deletion and pruning logic
 # ------------------------------------------------------------------------------
-@generated function delete_and_shift_branches!(d::SDTree{KT}, key::KT, I::Int) where {KT <: Tuple}
+
+@generated function _update_branch_on_delete!(d::SDTree{KT}, key::KT, key_to_update::KT, new_pos::Int) where {KT <: Tuple}
     N = fieldcount(KT)
     exprs = Expr[]
 
@@ -13,21 +14,19 @@
             prefix = $(Expr(:tuple, [:(key[$i]) for i in 1:depth]...))::$prefix_type
             suffix = $(Expr(:tuple, [:(key[$i]) for i in (depth+1):N]...))::$branch_type
 
-            lookup_dict = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
-
-            if haskey(lookup_dict, prefix)
-                delete!(lookup_dict[prefix], suffix)
-                if isempty(lookup_dict[prefix])
-                    delete!(lookup_dict, prefix)
+            lookups_at_depth = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
+            if haskey(lookups_at_depth, prefix)
+                br_lookup = lookups_at_depth[prefix]
+                delete!(br_lookup, suffix)
+                if isempty(br_lookup)
+                    delete!(lookups_at_depth, prefix)
                 end
             end
 
-            for inner_dict in values(lookup_dict)
-                for (k, v) in inner_dict
-                    if v > I
-                        inner_dict[k] = v - 1
-                    end
-                end
+            if new_pos > 0
+                prefix = $(Expr(:tuple, [:(key_to_update[$i]) for i in 1:depth]...))::$prefix_type
+                suffix = $(Expr(:tuple, [:(key_to_update[$i]) for i in (depth+1):N]...))::$branch_type
+                lookups_at_depth[prefix][suffix] = new_pos
             end
         end)
     end
@@ -39,32 +38,30 @@ end
     delete!(d::SDTree{KT, VT}, key::KT)
     delete!(v::SDBranch, key::ST)
 
-Removes a specific leaf `key` from the tree.
-
-Because values are stored in a flat array, deleting a leaf forces all subsequent elements to shift, making this an O(E) operation (where E is the number of elements). For removing entire sub-trees efficiently, use `prune!`.
+Removes a specific leaf `key` from the tree in O(1) time using the Swap-and-Pop pattern.
 """
 function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
-    !haskey(d.lookup, key) && return d
+    vacant_pos = get(d.lookup, key, nothing)
+    isnothing(vacant_pos)  &&  return d
+    _invalidate_viewid(d)
 
-    I = d.lookup[key]
-
-    # Remove from flat lists
-    deleteat!(d.values, I)
-    deleteat!(d.keys, I)
     delete!(d.lookup, key)
-
-    # Shift all root indices > I
-    for (k, v) in d.lookup
-        if v > I
-            d.lookup[k] = v - 1
-        end
+    if vacant_pos == length(d.values)
+        # It's already the last element; just pop it
+        pop!(d.keys)
+        pop!(d.values)
+        _update_branch_on_delete!(d, key, key, 0)
+    else
+        # Overwrite index vacant_pos with the last element's data
+        key_to_keep = pop!(d.keys)
+        d.keys[  vacant_pos] = key_to_keep
+        d.values[vacant_pos] = pop!(d.values)
+        d.lookup[key_to_keep] = vacant_pos
+        _update_branch_on_delete!(d, key, key_to_keep, vacant_pos)
     end
-
-    # Branch deletion & shifting
-    delete_and_shift_branches!(d, key, I)
 
     return d
 end
 
 delete!(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = delete!(v.root, (v.prefix..., key...))
-delete!(d::AbstractSDTree, key) = prune!(d, (key,))
+delete!(d::AbstractSDTree, key) = delete!(d, (key,))

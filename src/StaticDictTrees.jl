@@ -35,17 +35,23 @@ A high-performance, flattened hierarchical dictionary that maps fixed-depth `Tup
 struct SDTree{KT <: Tuple, VT} <: AbstractSDTree{KT, VT}
     keys::Vector{KT}
     values::Vector{VT}
-    lookup::Dict{KT, Int}
+    lookup::OrderedDict{KT, Int}
+    viewid::Vector{Int}
     branch_lookup::Tuple
+    branch_viewid::Tuple
 
     function SDTree{KT, VT}() where {KT <: Tuple, VT}
+        types = fieldtypes(KT)
         bl = ntuple(fieldcount(KT)-1) do i
-            types = fieldtypes(KT)
             prefix_type = Tuple{types[1:i]...}
             branch_type = Tuple{types[i+1:end]...}
             Dict{prefix_type, OrderedDict{branch_type, Int}}()
         end
-        new{KT, VT}(KT[], VT[], Dict{KT, Int}(), bl)
+        bi = ntuple(fieldcount(KT)-1) do i
+            prefix_type = Tuple{types[1:i]...}
+            Dict{prefix_type, Vector{Int}}()
+        end
+        new{KT, VT}(KT[], VT[], OrderedDict{KT, Int}(), Int[], bl, bi)
     end
 end
 
@@ -65,17 +71,37 @@ function empty!(d::SDTree)
     empty!(d.keys)
     empty!(d.values)
     empty!(d.lookup)
-    for level_dict in d.branch_lookup
-        for (k, v) in level_dict
-            empty!(v)
-        end
-        empty!(level_dict)
+    empty!(d.viewid)
+    for dict in d.branch_lookup
+        empty!.(values(dict))
+        empty!(dict)
+    end
+    for dict in d.branch_viewid
+        empty!.(values(dict))
+        empty!(dict)
     end
     return d
 end
 
+function _invalidate_viewid(d::SDTree)
+    empty!(d.viewid)
+    for dict in d.branch_viewid
+        empty!.(values(dict))
+    end
+end
+
+function _validate_viewid(d::SDTree{KT}) where KT
+    isempty(d.viewid)  ||  return
+    append!(d.viewid, collect(values(d.lookup)))
+    for depth in 1:fieldcount(KT)-1
+        for (prefix, bl) in d.branch_lookup[depth]
+            append!(d.branch_viewid[depth][prefix], collect(values(bl)))
+        end
+    end
+end
+
 # Insertion logic
-@generated function populate_branch_lookup!(d::SDTree{KT}, key::KT, I::Int) where {KT <: Tuple}
+@generated function populate_branch_dicts!(d::SDTree{KT}, key::KT, I::Int) where {KT <: Tuple}
     N = fieldcount(KT)
     exprs = Expr[]
 
@@ -87,15 +113,21 @@ end
             prefix = $(Expr(:tuple, [:(key[$i]) for i in 1:depth]...))::$prefix_type
             suffix = $(Expr(:tuple, [:(key[$i]) for i in (depth+1):N]...))::$branch_type
 
-            lookup_dict = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
-            node = get(lookup_dict, prefix, nothing)
-
-            if node === nothing
-                node = OrderedDict{$branch_type, Int}()
-                lookup_dict[prefix] = node
+            lookups_at_depth = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
+            br_lookup = get(lookups_at_depth, prefix, nothing)
+            if br_lookup === nothing
+                br_lookup = OrderedDict{$branch_type, Int}()
+                lookups_at_depth[prefix] = br_lookup
             end
+            br_lookup[suffix] = I
 
-            node[suffix] = I
+            bi_depth = d.branch_viewid[$depth]::Dict{$prefix_type, Vector{Int}}
+            bi_child = get(bi_depth, prefix, nothing)
+            if bi_child === nothing
+                bi_child = Vector{Int}()
+                bi_depth[prefix] = bi_child
+            end
+            push!(bi_child, I)
         end)
     end
 
@@ -103,14 +135,17 @@ end
 end
 
 function setindex!(d::SDTree{KT, VT}, value, key::KT) where {KT, VT}
-    if haskey(d.lookup, key)
-        d.values[d.lookup[key]] = value
+    i = get(d.lookup, key, nothing)
+    if !isnothing(i)
+        d.values[i] = value
     else
-        push!(d.keys, key)
+        _validate_viewid(d)
+        push!(d.keys  , key)
         push!(d.values, value)
         I = length(d.values)
         d.lookup[key] = I
-        populate_branch_lookup!(d, key, I)
+        push!(d.viewid, I)
+        populate_branch_dicts!(d, key, I)
     end
     return value
 end
@@ -133,7 +168,8 @@ A `SDBranch` holds a direct memory pointer to the parent tree's internal caches.
 struct SDBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractSDTree{ST, VT}
     root::SDTree{KT, VT}
     prefix::PT
-    node::OrderedDict{ST, Int}
+    lookup::OrderedDict{ST, Int}
+    viewid::Vector{Int}
 
     function SDBranch(d::SDTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
         depth = fieldcount(PT)
@@ -141,23 +177,19 @@ struct SDBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractSDTree{ST, VT}
         @assert depth < N "The tree has a fixed depth of $N, can't accomodate a prefix key of length $(depth)"
         ST = Tuple{fieldtypes(KT)[depth+1:end]...}
 
-        lookup = d.branch_lookup[depth]::Dict{PT, OrderedDict{ST, Int}}
-        if !haskey(lookup, prefix)
+        lookups_at_depth = d.branch_lookup[depth]::Dict{PT, OrderedDict{ST, Int}}
+        if !haskey(lookups_at_depth, prefix)
             throw(KeyError(prefix))
         end
-        node = lookup[prefix]::OrderedDict{ST, Int}
-        return new{KT, PT, ST, VT}(d, prefix, node)
+        lookup = lookups_at_depth[prefix]::OrderedDict{ST, Int}
+        viewid = d.branch_viewid[depth][prefix]::Vector{Int}
+        return new{KT, PT, ST, VT}(d, prefix, lookup, viewid)
     end
 end
 
 SDBranch(v::SDBranch, prefix::Tuple) = SDBranch(v.root, (v.prefix..., prefix...))
 
-function empty!(v::SDBranch)
-    for k in collect(keys(v.node))
-        delete!(v, k)
-    end
-    return v
-end
+empty!(v::SDBranch)= prune!(v)
 
 # Insertion logic
 setindex!(v::SDBranch{KT, PT, ST, VT}, value, key::ST) where {KT, PT, ST, VT} = (@assert !is_stale(v); v.root[(v.prefix..., key...)] = value; value)
@@ -256,20 +288,27 @@ function keys(v::SDBranch{KT, PT, ST, VT}, level::Int) where {KT, PT, ST, VT}
     end
 end
 
-keys(d::SDTree) = d.keys
-keys(v::SDBranch) = keys(v.node)
+keys(d::SDTree) = keys(d.lookup)
+keys(v::SDBranch) = keys(v.lookup)
 keys(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? Tuple{}[] : [()]
 
-values(d::SDTree) = d.values
-values(v::SDBranch) = (v.root.values[i] for i in values(v.node))
+function values(d::SDTree)
+    _validate_viewid(d)
+    return view(d.values, d.viewid)
+end
+function values(v::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT}
+    is_stale(v)  &&  return VT[]
+    _validate_viewid(v.root)
+    return view(v.root.values, v.viewid)
+end
 values(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? VT[] : [v.root[v.key]]
 
 length(d::SDTree) = length(d.values)
-length(v::SDBranch) = length(v.node)
+length(v::SDBranch) = length(v.lookup)
 length(v::SDLeaf) = is_stale(v) ? 0 : 1
 
 haskey(d::SDTree{KT, VT}, key::KT) where {KT, VT} = haskey(d.lookup, key)
-haskey(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = haskey(v.node, key)
+haskey(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = haskey(v.lookup, key)
 haskey(v::SDLeaf{KT, VT}, key::Tuple) where {KT, VT} = !is_stale(v)  &&  (key == Tuple{}())
 
 depth(::SDTree{KT, VT}) where {KT, VT} = fieldcount(KT)
@@ -292,7 +331,7 @@ is deleted, typically via a call to `empty!(parent)` or `prune!(parent, ...)`.
 Returns `true` if the underlying data has been destroyed. A stale view safely
 acts as an empty collection (length 0, empty iterators) and should no longer be mutated.
 """
-is_stale(v::SDBranch) = length(v.node) == 0
+is_stale(v::SDBranch) = length(v.lookup) == 0
 is_stale(v::SDLeaf) = !haskey(v.root.lookup, v.key)
 
 """
@@ -328,9 +367,11 @@ root(d::SDTree) = d
 root(v::SDBranch) = v.root
 root(v::SDLeaf) = v.root
 
-function iterate(d::SDTree, state=1)
-    (state > length(d.values)) && return nothing
-    return (d.keys[state] => d.values[state], state + 1)
+function iterate(d::SDTree, state=nothing)
+    res = state === nothing ? iterate(d.lookup) : iterate(d.lookup, state)
+    res === nothing && return nothing
+    (key, idx), next_state = res
+    return (key => d.values[idx], next_state)
 end
 
 function iterate(v::SDLeaf, state=nothing)
@@ -339,7 +380,7 @@ function iterate(v::SDLeaf, state=nothing)
 end
 
 function iterate(v::SDBranch, state=nothing)
-    res = state === nothing ? iterate(v.node) : iterate(v.node, state)
+    res = state === nothing ? iterate(v.lookup) : iterate(v.lookup, state)
     res === nothing && return nothing
     (key, idx), next_state = res
     return (key => v.root.values[idx], next_state)
@@ -348,7 +389,7 @@ end
 getindex(d::SDTree{KT, VT}, key::KT) where {KT, VT} = d.values[d.lookup[key]]
 getindex(d::SDTree{KT, VT}, key) where {KT, VT} = getindex(d, (key,))
 
-getindex(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = (@assert !is_stale(v); v.root.values[v.node[key]])
+getindex(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = (@assert !is_stale(v); v.root.values[v.lookup[key]])
 getindex(v::SDBranch{KT, PT, ST, VT}, key)     where {KT, PT, ST, VT} = getindex(v, (key,))
 
 getindex(v::SDLeaf{KT, VT}, key::Tuple{})      where {KT, VT} = (@assert !is_stale(v); v.root[v.key])
@@ -416,9 +457,9 @@ end
 
 function children(v::SDBranch{KT}) where {KT <: Tuple}
     if is_leaf_level(v)
-        return [SDLeaf(v.root, (v.prefix..., k...)) for k in sort(collect(keys(v.node)))]
+        return [SDLeaf(v.root, (v.prefix..., k...)) for k in sort(collect(keys(v.lookup)))]
     else
-        unique_next_steps = unique(k[1] for k in keys(v.node))
+        unique_next_steps = unique(k[1] for k in keys(v.lookup))
         return [SDBranch(v.root, (v.prefix..., step)) for step in sort(unique_next_steps)]
     end
 end

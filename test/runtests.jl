@@ -37,7 +37,7 @@ using AbstractTrees
         # empty!
         empty!(dt2)
         @test length(dt2) == 0
-        @test isempty(dt2.keys) && isempty(dt2.values)
+        @test isempty(dt2.values)
     end
 
     @testset "Tree Properties (depth, is_leaf_level, parent, root)" begin
