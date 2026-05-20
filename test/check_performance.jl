@@ -1,8 +1,9 @@
-using StaticDictTrees, Random, Printf
+using Revise, StaticDictTrees, Random, Printf
 
 # Build a tree of size N
 function build_tree(N)
     dt = SDTree{Tuple{Bool, Int, Symbol, String}, Float64}()
+    sizehint!(dt, 2_000_000)
     for i in 1:N
         dt[isodd(i), 1, Symbol(:l, rand(Int)), string(rand())] = rand()
     end
