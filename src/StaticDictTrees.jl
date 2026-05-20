@@ -3,7 +3,7 @@ module StaticDictTrees
 using DataStructures
 
 import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, delete!, view
-export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root
+export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, values_view
 
 #=
 Conventions:
@@ -33,6 +33,7 @@ struct SDTree{KT <: Tuple, VT} <: AbstractSDTree{KT, VT}
     values::Vector{VT}
     lookup::OrderedDict{KT, Int}
     branch_lookup::Tuple
+    viewid::Vector{Int}
 
     function SDTree{KT, VT}() where {KT <: Tuple, VT}
         bl = ntuple(fieldcount(KT)-1) do i
@@ -41,7 +42,7 @@ struct SDTree{KT <: Tuple, VT} <: AbstractSDTree{KT, VT}
             branch_type = Tuple{types[i+1:end]...}
             Dict{prefix_type, OrderedDict{branch_type, Int}}()
         end
-        new{KT, VT}(KT[], VT[], OrderedDict{KT, Int}(), bl)
+        new{KT, VT}(KT[], VT[], OrderedDict{KT, Int}(), bl, Int[])
     end
 end
 
@@ -107,6 +108,7 @@ function setindex!(d::SDTree{KT, VT}, value, key::KT) where {KT, VT}
         I = length(d.values)
         d.lookup[key] = I
         populate_branch_lookup!(d, key, I)
+        isempty(d.viewid)  ||  push!(d.viewid, I)
     end
     return value
 end
@@ -125,6 +127,7 @@ struct SDBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractSDTree{ST, VT}
     root::SDTree{KT, VT}
     prefix::PT
     lookup::OrderedDict{ST, Int}
+    viewid::Vector{Int}
 
     function SDBranch(d::SDTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
         depth = fieldcount(PT)
@@ -137,7 +140,7 @@ struct SDBranch{KT, PT <: Tuple, ST <: Tuple, VT} <: AbstractSDTree{ST, VT}
             throw(KeyError(prefix))
         end
         lookup = lookups_at_depth[prefix]::OrderedDict{ST, Int}
-        return new{KT, PT, ST, VT}(d, prefix, lookup)
+        return new{KT, PT, ST, VT}(d, prefix, lookup, Int[])
     end
 end
 
@@ -206,6 +209,36 @@ keys(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? Tuple{}[] : [()]
 values(d::SDTree) = (d.values[i] for i in values(d.lookup))
 values(v::SDBranch) = (v.root.values[i] for i in values(v.lookup))
 values(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? VT[] : [v.root[v.key]]
+
+"""
+    values_view(d::SDTree)
+    values_view(v::SDBranch)
+    values_view(l::SDLeaf)
+
+Returns a zero-allocation `SubArray` view into the tree's values, strictly preserving the original insertion order.
+
+Unlike `values()`, which returns a standard lazy Julia iterator, `values_view` returns an `AbstractArray`. This makes it ideal for broadcasting, linear algebra, or passing to functions that require array-like indexing.
+
+Under the hood, it uses a lazy dirty-flag cache which is automatically updated when inserting new entries, but it is entirely invalidated whenever a `delete!` or `prune!` operations is invoked tree.
+"""
+function values_view(d::SDTree)
+    isempty(d.viewid)  &&  append!(d.viewid, values(d.lookup))
+    return view(d.values, d.viewid)
+end
+
+function values_view(v::SDBranch)
+    is_stale(v)  &&  return view(v.root.values, 1:0)
+    if length(v.viewid) != length(v.lookup)
+        empty!(v.viewid)
+        append!(v.viewid, values(v.lookup))
+    end
+    return view(v.root.values, v.viewid)
+end
+
+# Leaves just return a standard 1-element view of the array
+values_view(v::SDLeaf) = is_stale(v) ? view(v.root.values, 1:0) : view(v.root.values, v.root.lookup[v.key]:v.root.lookup[v.key])
+
+
 
 length(d::SDTree) = length(d.lookup)
 length(v::SDBranch) = length(v.lookup)

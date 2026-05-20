@@ -43,6 +43,7 @@ function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
     vacant_pos = get(d.lookup, key, nothing)
     isnothing(vacant_pos)  &&  return d
 
+    empty!(d.viewid)
     delete!(d.lookup, key)
 
     if vacant_pos == length(d.values)
@@ -50,7 +51,7 @@ function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
         pop!(d.values)
         _update_branch_on_delete!(d, key, key, 0)
     else
-        key_to_keep = pop!(d.keys)        
+        key_to_keep = pop!(d.keys)
         d.keys[vacant_pos] = key_to_keep
         d.values[vacant_pos] = pop!(d.values)
         d.lookup[key_to_keep] = vacant_pos

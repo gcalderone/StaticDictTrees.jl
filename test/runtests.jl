@@ -76,10 +76,10 @@ using AbstractTrees
         @test root(br1) === dt
         @test root(br2) === dt
         @test root(lf) === dt
-        
+
         # Test that `root` works on views created from other views
         br_nested = view(br1, :server)
-        @test root(br_nested) === dt        
+        @test root(br_nested) === dt
     end
 
     @testset "View Interface" begin
@@ -311,6 +311,69 @@ using AbstractTrees
         empty!(v4)
         @test is_stale(v4)
         @test length(dt4) == 0
+    end
+
+    @testset "values_view and Lazy Caching (Advanced Deletions)" begin
+        # 3-level tree to allow for more complex pruning
+        dt = SDTree{Tuple{Symbol, Int, String}, Float64}()
+
+        # Initial insertions
+        dt[:a, 1, "x"] = 10.0
+        dt[:a, 2, "y"] = 20.0
+        dt[:a, 2, "z"] = 25.0
+        dt[:b, 1, "x"] = 30.0
+
+        # Create multiple overlapping views
+        br_a = view(dt, (:a,))
+        br_a2 = view(dt, (:a, 2))
+        lf_b = view(dt, (:b, 1, "x"))
+
+        # Test Initial Views
+        vv_root = values_view(dt)
+        vv_a = values_view(br_a)
+
+        @test collect(vv_root) == [10.0, 20.0, 25.0, 30.0]
+        @test collect(vv_a)    == [10.0, 20.0, 25.0]
+        @test collect(values_view(br_a2)) == [20.0, 25.0]
+
+        # Cache Invalidation on Insertion
+        dt[:a, 3, "w"] = 40.0
+        @test collect(values_view(dt))   == [10.0, 20.0, 25.0, 30.0, 40.0]
+        @test collect(values_view(br_a)) == [10.0, 20.0, 25.0, 40.0]
+
+        # Swap-and-Pop Delete via the ROOT
+        delete!(dt, (:a, 1, "x"))
+        @test collect(values_view(dt))   == [20.0, 25.0, 30.0, 40.0]
+        @test collect(values_view(br_a)) == [20.0, 25.0, 40.0]
+
+        # Swap-and-Pop Delete via the BRANCH
+        # Calling delete! on a branch view should update the root and all sibling views
+        delete!(br_a, (3, "w"))
+        @test collect(values_view(dt))   == [20.0, 25.0, 30.0]
+        @test collect(values_view(br_a)) == [20.0, 25.0]
+
+        # Prune an entire root branch
+        prune!(dt, (:b,))
+        @test collect(values_view(dt)) == [20.0, 25.0]
+        @test isempty(values_view(lf_b)) # Leaf should safely detect it is stale
+
+        # Prune a sub-branch via the BRANCH view
+        # This removes (:a, 2, "y") and (:a, 2, "z") simultaneously
+        prune!(br_a, (2,))
+
+        @test isempty(values_view(dt))    # The tree should now be completely empty
+        @test isempty(values_view(br_a))  # The parent branch should be empty
+        @test isempty(values_view(br_a2)) # The nested branch should safely detect it is stale
+
+        # In-Place Mutability Test
+        # Insert a new value to test mutation
+        dt[:c, 9, "test"] = 100.0
+        br_c = view(dt, (:c,))
+
+        vv_mut = values_view(br_c)
+        vv_mut[1] = 999.0  # Write directly to the SubArray
+
+        @test dt[:c, 9, "test"] == 999.0 # Proves the view is physically mapped to the root array
     end
 
     @testset "AbstractTrees Integration" begin

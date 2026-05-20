@@ -25,14 +25,14 @@ function prune!(d::SDTree{KT, VT}, path::PT) where {KT <: Tuple, VT, PT <: Tuple
 
     if haskey(lookups_at_depth, path)
         br_lookup = lookups_at_depth[path]
-        
+
         keys_to_delete = [convert(KT, (path..., suffix...)) for suffix in keys(br_lookup)]
 
         for key in keys_to_delete
             delete!(d, key)
         end
     end
-    
+
     return d
 end
 
