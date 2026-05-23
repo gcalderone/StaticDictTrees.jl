@@ -38,6 +38,13 @@ using AbstractTrees
         empty!(dt2)
         @test length(dt2) == 0
         @test isempty(dt2.values)
+
+        # Test zero depth
+        dt_zero = SDTree{Tuple{}, Float64}()
+        @test depth(dt_zero) == 0
+        @test is_leaf_level(dt_zero) == true
+        lf_zero = view(dt_zero, ())
+        @test parent(lf_zero) === dt_zero
     end
 
     @testset "Tree Properties (depth, is_leaf_level, parent, root)" begin
@@ -313,6 +320,36 @@ using AbstractTrees
         @test length(dt4) == 0
     end
 
+    @testset "Emptying and Stale State" begin
+        dt = SDTree{Tuple{Int, Int}, String}()
+        dt[1, 1] = "A"
+        dt[1, 2] = "B"
+        dt[2, 1] = "C"
+
+        br = view(dt, (1,))
+        lf = view(dt, (2, 1))
+
+        # Ensure values_view caches are populated before emptying
+        _ = values_view(dt)
+        _ = values_view(br)
+
+        # Wipe the tree
+        empty!(dt)
+
+        @test length(dt) == 0
+        @test isempty(dt.keys)
+        @test isempty(dt.values)
+        @test isempty(dt.lookup)
+        @test isempty(dt.viewid)
+        @test isempty(dt.branch_lookup[1])
+
+        # Existing views should now be safely stale
+        @test is_stale(br)
+        @test is_stale(lf)
+        @test isempty(values_view(br))
+        @test isempty(values_view(lf))
+    end
+
     @testset "values_view and Lazy Caching (Advanced Deletions)" begin
         # 3-level tree to allow for more complex pruning
         dt = SDTree{Tuple{Symbol, Int, String}, Float64}()
@@ -374,6 +411,31 @@ using AbstractTrees
         vv_mut[1] = 999.0  # Write directly to the SubArray
 
         @test dt[:c, 9, "test"] == 999.0 # Proves the view is physically mapped to the root array
+    end
+
+    @testset "Scalar Key Conveniences" begin
+        dt = SDTree{Tuple{Symbol}, Int}()
+
+        # setindex!
+        dt[:apple] = 5
+        dt[:banana] = 10
+
+        # haskey and getindex
+        @test haskey(dt, :apple)
+        @test dt[:banana] == 10
+
+        # view
+        lf = view(dt, :apple)
+        @test lf isa SDLeaf
+        @test lf[()] == 5
+
+        # delete! and prune!
+        delete!(dt, :apple)
+        @test !haskey(dt, :apple)
+        @test length(dt) == 1
+
+        prune!(dt, :banana)
+        @test isempty(dt)
     end
 
     @testset "AbstractTrees Integration" begin

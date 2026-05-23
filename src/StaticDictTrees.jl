@@ -36,11 +36,15 @@ struct SDTree{KT <: Tuple, VT} <: AbstractSDTree{KT, VT}
     viewid::Vector{Int}
 
     function SDTree{KT, VT}() where {KT <: Tuple, VT}
-        bl = ntuple(fieldcount(KT)-1) do i
-            types = fieldtypes(KT)
-            prefix_type = Tuple{types[1:i]...}
-            branch_type = Tuple{types[i+1:end]...}
-            Dict{prefix_type, OrderedDict{branch_type, Int}}()
+        if fieldcount(KT) > 0
+            bl = ntuple(fieldcount(KT)-1) do i
+                types = fieldtypes(KT)
+                prefix_type = Tuple{types[1:i]...}
+                branch_type = Tuple{types[i+1:end]...}
+                Dict{prefix_type, OrderedDict{branch_type, Int}}()
+            end
+        else
+            bl = ()
         end
         new{KT, VT}(KT[], VT[], OrderedDict{KT, Int}(), bl, Int[])
     end
@@ -68,6 +72,7 @@ function empty!(d::SDTree)
         end
         empty!(level_dict)
     end
+    empty!(d.viewid)
     return d
 end
 
@@ -242,14 +247,16 @@ length(v::SDBranch) = length(v.lookup)
 length(v::SDLeaf) = is_stale(v) ? 0 : 1
 
 haskey(d::SDTree{KT, VT}, key::KT) where {KT, VT} = haskey(d.lookup, key)
+haskey(d::SDTree{KT, VT}, key) where {KT, VT} = haskey(d, (key,))
 haskey(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = haskey(v.lookup, key)
+haskey(v::SDBranch{KT, PT, ST, VT}, key) where {KT, PT, ST, VT} = haskey(v, (key,))
 haskey(v::SDLeaf{KT, VT}, key::Tuple) where {KT, VT} = !is_stale(v)  &&  (key == Tuple{}())
 
 depth(::SDTree{KT, VT}) where {KT, VT} = fieldcount(KT)
 depth(::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = fieldcount(PT)
 depth(::SDLeaf{KT, VT}) where {KT, VT} = fieldcount(KT)
 
-is_leaf_level(::SDTree{KT}) where {KT <: Tuple} = fieldcount(KT) == 1
+is_leaf_level(::SDTree{KT}) where {KT <: Tuple} = fieldcount(KT) <= 1
 is_leaf_level(::SDBranch{KT, PT, ST}) where {KT, PT, ST <: Tuple} = fieldcount(ST) == 1
 is_leaf_level(::SDLeaf) = true
 
@@ -259,12 +266,12 @@ is_stale(v::SDLeaf) = !haskey(v.root.lookup, v.key)
 parent(d::SDTree) = nothing
 
 function parent(v::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT}
-    (fieldcount(PT) == 1) && return v.root
+    (fieldcount(PT) <= 1) && return v.root
     return SDBranch(v.root, v.prefix[1:(end-1)])
 end
 
 function parent(v::SDLeaf{KT, VT}) where {KT, VT}
-    (fieldcount(KT) == 1) && return v.root
+    (fieldcount(KT) <= 1) && return v.root
     return SDBranch(v.root, v.key[1:(end-1)])
 end
 
@@ -377,6 +384,7 @@ children(::SDLeaf) = ()
 printnode(io::IO, d::SDTree) = print(io, "SDTree (Root)")
 printnode(io::IO, v::SDBranch) = print(io, repr(v.prefix[end]))
 printnode(io::IO, e::SDLeaf) = print(io, repr(e.key[end]), " => ", repr(e[()]))
+printnode(io::IO, e::SDLeaf{Tuple{}}) = print(io, repr(e.key), " => ", repr(e[()]))
 
 
 # ------------------------------------------------------------------------------
