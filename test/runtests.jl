@@ -34,6 +34,9 @@ using AbstractTrees
         @test length(dt3) == 2
         @test dt3[2, :b] == 20
 
+        # sizehint! coverage
+        @test sizehint!(dt3, 100) === dt3
+
         # empty!
         empty!(dt2)
         @test length(dt2) == 0
@@ -115,6 +118,10 @@ using AbstractTrees
         @test_throws ArgumentError view(dt, (1, :server, "latency", "extra"))
         @test_throws ArgumentError view(v1, (:server, "latency", "extra"))
 
+        # Missing branch checking
+        @test_throws KeyError view(dt, (99,))
+        @test_throws KeyError view(v1, (:unknown_branch,))
+
         # Mutation via views updates the underlying flat array
         v2["latency"] = 99.0
         @test dt[1, :server, "latency"] == 99.0
@@ -130,16 +137,23 @@ using AbstractTrees
         @test length(collect(dt)) == 3
         @test ((1, :a) => 10) in collect(dt)
 
+        # Lazy values iterator
+        lazy_vals = values(dt)
+        @test !(lazy_vals isa AbstractArray)
+        @test collect(lazy_vals) == [10, 20, 30]
+
         # Branch iteration
         br = view(dt, 1)
         @test is_leaf_level(br)
         @test length(collect(br)) == 2
         @test ((:a,) => 10) in collect(br)
+        @test collect(values(br)) == [10, 20]
 
         # Leaf iteration
         lf = view(dt, (2, :c))
         @test length(collect(lf)) == 1
         @test collect(lf)[1] == (() => 30)
+        @test collect(values(lf)) == [30]
     end
 
     @testset "keys by level: SDTree and SDBranch" begin
@@ -470,5 +484,4 @@ using AbstractTrees
         @test occursin("1 =>", out_nested) # Should not double print the vector
         @test occursin("99", out_nested)
     end
-
 end
