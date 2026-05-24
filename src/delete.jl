@@ -1,6 +1,5 @@
-# ------------------------------------------------------------------------------
-# Deletion and pruning logic
-# ------------------------------------------------------------------------------
+import Base: delete!
+
 @generated function _update_branch_on_delete!(d::SDTree{KT}, key::KT, key_to_update::KT, new_pos::Int) where {KT <: Tuple}
     N = fieldcount(KT)
     exprs = Expr[]
@@ -29,17 +28,19 @@
             end
         end)
     end
-
     return Expr(:block, exprs...)
 end
 
-"""
-    delete!(d::SDTree{KT, VT}, key::KT)
-    delete!(v::SDBranch, key::ST)
 
-Removes a specific leaf `key` from the tree in O(1) time using the Swap-and-Pop pattern.
 """
-function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
+    delete!(d::SDTree, key::Tuple)
+    delete!(v::SDBranch, key::Tuple)
+    delete!(d::DictTree, key::Tuple)
+    delete!(d::DictBranch, key::Tuple)
+
+Removes a specific value from the tree.
+"""
+function delete!(d::SDTree{KT}, key::KT) where {KT <: Tuple}
     vacant_pos = get(d.lookup, key, nothing)
     isnothing(vacant_pos)  &&  return d
 
@@ -60,6 +61,43 @@ function delete!(d::SDTree{KT, VT}, key::KT) where {KT, VT}
 
     return d
 end
+delete!(d::SDTree{KT}, key::T) where {KT <: Tuple, T <: Tuple} = throw(ArgumentError("Invalid key type: $KT != $T"))
+delete!(d::SDTree, key) = delete!(d, (key,))
 
-delete!(v::SDBranch{KT, PT, ST, VT}, key::ST) where {KT, PT, ST, VT} = delete!(v.root, (v.prefix..., key...))
-delete!(d::AbstractSDTree, key) = prune!(d, (key,))
+
+# ------------------------------------------------------------------------------
+# SDBranch & SDLeaf Views
+# ------------------------------------------------------------------------------
+@generated function delete!(v::SDBranch{KT, PT, ST}, key::ST) where {KT <: Tuple, PT <: Tuple, ST <: Tuple}
+    M = fieldcount(PT)
+    L = fieldcount(ST)
+    combined_tuple = Expr(:tuple, [:(v.prefix[$i]) for i in 1:M]..., [:(key[$i]) for i in 1:L]...)
+    return quote
+        delete!(v.root, $combined_tuple)
+        return v
+    end
+end
+delete!(v::SDBranch{KT, PT, ST}, key::T) where {KT <: Tuple, PT <: Tuple, ST <: Tuple, T <: Tuple} = throw(ArgumentError("Invalid key type: $ST != $T"))
+delete!(v::SDBranch, key) = delete!(v, (key,))
+
+delete!(v::SDLeaf, key::Tuple{}) = (delete!(v.root, v.key); v)
+
+# ------------------------------------------------------------------------------
+# DictTree Deletions
+# ------------------------------------------------------------------------------
+function Base.delete!(dt::DictTree, key::Tuple)
+    target_depth = length(key)
+    if haskey(dt.trees, target_depth)
+        delete!(dt.trees[target_depth], key)
+    end
+    return dt
+end
+Base.delete!(dt::DictTree, key) = delete!(dt, (key,))
+
+
+function Base.delete!(db::DictBranch, key::Tuple)
+    full_key = (db.prefix..., key...)
+    delete!(db.dt, full_key)
+    return db
+end
+Base.delete!(db::DictBranch, key) = delete!(db, (key,))

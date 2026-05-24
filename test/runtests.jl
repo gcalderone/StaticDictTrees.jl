@@ -1,56 +1,53 @@
 using Test
-using StaticDictTrees
+using DataStructures
 using AbstractTrees
 
-@testset "StaticDictTrees.jl" begin
+using StaticDictTrees
 
-    @testset "Constructors and Basic Dict API" begin
+@testset "StaticDictTrees & DictTree Full Suite" begin
+
+    # ==========================================================================
+    # PART 1: The Core (SDTree, SDBranch, SDLeaf)
+    # ==========================================================================
+
+    @testset "1. SDTree Constructors & Edge Cases" begin
         # Empty initialization
-        dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
-        @test isempty(dt)
-        @test length(dt) == 0
+        t1 = SDTree{Tuple{Int, Int}, String}()
+        @test isempty(t1)
+        @test depth(t1) == 2
+        @test length(t1) == 0
 
-        # Insertion and getindex
-        dt[1, :server, "latency"] = 12.5
-        dt[(1, :server, "uptime")] = 99.9
-        dt[2, :local, "cache"] = 2.1
+        # Pair constructor
+        t2 = SDTree((1, 2) => "A", (3, 4) => "B")
+        @test length(t2) == 2
+        @test t2[(1, 2)] == "A"
 
-        @test length(dt) == 3
-        @test haskey(dt, (1, :server, "latency"))
-        @test !haskey(dt, (3, :unknown, "test"))
-        @test dt[1, :server, "latency"] == 12.5
+        # Dict constructor
+        d = Dict((1,) => 10, (2,) => 20)
+        t3 = SDTree(d)
+        @test length(t3) == 2
+        @test t3[(2,)] == 20
 
-        # Update an existing key
-        dt[1, :server, "latency"] = 5.0
-        @test length(dt) == 3 # Length should NOT increase
-        @test dt[1, :server, "latency"] == 5.0
-
-        # Pair/Dict constructors
-        dt2 = SDTree((1, :a) => 10, (2, :b) => 20)
-        @test length(dt2) == 2
-        @test dt2[1, :a] == 10
-
-        dt3 = SDTree(Dict((1, :a) => 10, (2, :b) => 20))
-        @test length(dt3) == 2
-        @test dt3[2, :b] == 20
+        # Vector constructor
+        keys_vec = [(1, 1), (2, 2)]
+        vals_vec = [100, 200]
+        t4 = SDTree(keys_vec, vals_vec)
+        @test length(t4) == 2
+        @test t4[(2, 2)] == 200
 
         # sizehint! coverage
-        @test sizehint!(dt3, 100) === dt3
+        @test sizehint!(t4, 100) === t4
 
-        # empty!
-        empty!(dt2)
-        @test length(dt2) == 0
-        @test isempty(dt2.values)
-
-        # Test zero depth
-        dt_zero = SDTree{Tuple{}, Float64}()
-        @test depth(dt_zero) == 0
-        @test is_leaf_level(dt_zero) == true
-        lf_zero = view(dt_zero, ())
-        @test parent(lf_zero) === dt_zero
+        # 0-dimensional tree (Edge case)
+        t0 = SDTree{Tuple{}, Int}()
+        @test depth(t0) == 0
+        @test is_leaf_level(t0)
+        t0[()] = 42
+        @test t0[()] == 42
+        @test length(t0) == 1
     end
 
-    @testset "Tree Properties (depth, is_leaf_level, parent, root)" begin
+    @testset "2. Tree Properties (depth, is_leaf_level, parent, root)" begin
         dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
         dt[1, :server, "latency"] = 12.5
 
@@ -58,19 +55,19 @@ using AbstractTrees
         br2 = SDBranch(dt, (1, :server))
         lf  = SDLeaf(dt, (1, :server, "latency"))
 
-        # Depth
+        # Depth tracking
         @test depth(dt)  == 3
         @test depth(br1) == 1
         @test depth(br2) == 2
         @test depth(lf)  == 3
 
-        # is_leaf_level
+        # is_leaf_level tracking
         @test !is_leaf_level(dt)
         @test !is_leaf_level(br1)
         @test is_leaf_level(br2)
         @test is_leaf_level(lf)
 
-        # parent traversal
+        # Parent traversal logic
         @test parent(dt) === nothing
         @test parent(br1) === dt
         @test parent(br2).prefix == (1,)
@@ -81,69 +78,98 @@ using AbstractTrees
         @test is_leaf_level(dt_flat)
         @test parent(SDLeaf(dt_flat, (1,))) === dt_flat
 
-        # root traversal (using === to guarantee exact memory identity)
+        # Root traversal (using === to guarantee exact memory identity)
         @test root(dt) === dt
         @test root(br1) === dt
         @test root(br2) === dt
         @test root(lf) === dt
 
         # Test that `root` works on views created from other views
-        br_nested = view(br1, :server)
+        br_nested = view(br1, (:server,))
         @test root(br_nested) === dt
     end
 
-    @testset "View Interface" begin
-        dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
-        dt[1, :server, "latency"] = 12.5
+    @testset "3. SDTree Base API & Chronological Order" begin
+        t = SDTree{Tuple{Int, Int}, Float64}()
 
-        # view from Tree
-        v1 = view(dt, 1) # Auto-tuple fallback
-        @test v1 isa SDBranch
-        @test depth(v1) == 1
+        t[(1, 1)] = 1.0
+        t[(1, 2)] = 2.0
+        @test length(t) == 2
 
-        # view from Branch
-        v2 = view(v1, :server)
-        @test v2 isa SDBranch
-        @test depth(v2) == 2
+        @test t[(1, 1)] == 1.0
+        @test t[(1, 2)] == 2.0
+        @test_throws KeyError t[(2, 2)]
+        @test_throws ArgumentError t[(1,)] # Incomplete key error fallback
 
-        # View to Leaf
-        lf1 = view(v2, "latency")
-        @test lf1 isa SDLeaf
-        @test lf1.key == (1, :server, "latency")
+        @test haskey(t, (1, 1))
+        @test !haskey(t, (2, 2))
+        @test !haskey(t, (1,)) # False for partial keys
 
-        lf2 = view(dt, (1, :server, "latency"))
-        @test lf2 isa SDLeaf
+        # Update an existing key
+        t[(1, 1)] = 5.0
+        @test length(t) == 2 # Length should NOT increase on update
+        @test t[(1, 1)] == 5.0
 
-        # View bounds checking
-        @test_throws ArgumentError view(dt, (1, :server, "latency", "extra"))
-        @test_throws ArgumentError view(v1, (:server, "latency", "extra"))
-
-        # Missing branch checking
-        @test_throws KeyError view(dt, (99,))
-        @test_throws KeyError view(v1, (:unknown_branch,))
-
-        # Mutation via views updates the underlying flat array
-        v2["latency"] = 99.0
-        @test dt[1, :server, "latency"] == 99.0
-
-        lf2[()] = 42.0
-        @test dt[1, :server, "latency"] == 42.0
+        # Values View Chronological Order Validation
+        t[(2, 1)] = 3.0
+        v_view = values_view(t)
+        @test v_view == [5.0, 2.0, 3.0]
     end
 
-    @testset "Iteration and Collection" begin
+    @testset "4. Core Views (SDBranch & SDLeaf)" begin
+        t = SDTree{Tuple{Int, Int, Int}, String}()
+        t[(1, 1, 1)] = "A"
+        t[(1, 1, 2)] = "B"
+        t[(1, 2, 1)] = "C"
+        t[(2, 1, 1)] = "D"
+
+        # SDBranch View creation
+        v1 = view(t, (1,))
+        @test v1 isa SDBranch
+        @test length(v1) == 3
+        @test haskey(v1, (1, 1))
+        @test v1[(1, 1)] == "A"
+
+        # Nested SDBranch view
+        v11 = view(v1, (1,))
+        @test v11 isa SDBranch
+        @test length(v11) == 2
+        @test v11[(2,)] == "B"
+
+        # SDLeaf View creation
+        l = view(t, (1, 1, 1))
+        @test l isa SDLeaf
+        @test length(l) == 1
+        @test l[()] == "A"
+
+        # Mutating via views updates the physical dictionary
+        v11[(2,)] = "B_mod"
+        @test t[(1, 1, 2)] == "B_mod"
+
+        l[()] = "A_mod"
+        @test t[(1, 1, 1)] == "A_mod"
+        @test v1[(1, 1)] == "A_mod"
+
+        # View bounds & missing branch safety checking
+        @test_throws AssertionError view(t, (1, 1, 1, 99)) # Key too long
+        @test_throws KeyError view(t, (99,))
+        @test_throws KeyError view(v1, (99,))
+    end
+
+    @testset "5. Iteration and Collection" begin
         dt = SDTree((1, :a) => 10, (1, :b) => 20, (2, :c) => 30)
 
         # Tree iteration
         @test length(collect(dt)) == 3
         @test ((1, :a) => 10) in collect(dt)
 
-        # Lazy values iterator
+        # Lazy values iterator (Ensuring values() avoids allocating standard arrays)
         lazy_vals = values(dt)
         @test !(lazy_vals isa AbstractArray)
         @test collect(lazy_vals) == [10, 20, 30]
 
-        # Branch iteration
-        br = view(dt, 1)
+        # Branch iteration (Keys should be relative suffixes)
+        br = view(dt, (1,))
         @test is_leaf_level(br)
         @test length(collect(br)) == 2
         @test ((:a,) => 10) in collect(br)
@@ -156,169 +182,144 @@ using AbstractTrees
         @test collect(values(lf)) == [30]
     end
 
-    @testset "keys by level: SDTree and SDBranch" begin
-        # Setup a smaller, representative version of the Standard Model tree
-        dt = SDTree(
-            (:Fermion, :Quark, :up)       => 2.2,
-            (:Fermion, :Quark, :down)     => 4.7,
-            (:Fermion, :Lepton, :electron)=> 0.51,
-            (:Boson, :Gauge, :photon)     => 0.0,
-            (:Boson, :Scalar, :higgs)     => 125100.0
-        )
+    @testset "6. Core Destructive Operations & Swap-with-Last" begin
+        t = SDTree{Tuple{Int, Int}, Int}()
+        t[(1, 1)] = 10
+        t[(1, 2)] = 20
+        t[(2, 1)] = 30
+        t[(2, 2)] = 40
 
-        @testset "Root SDTree (Depth = 3)" begin
-            # Level 1: Base Categories
-            lvl1 = keys(dt, 1)
-            @test Set(lvl1) == Set([(:Fermion,), (:Boson,)])
+        # delete! on Root (Verifying O(1) swap logic: (2,2) moves into (1,1)'s spot)
+        delete!(t, (1, 1))
+        @test !haskey(t, (1, 1))
+        @test length(t) == 3
+        @test values_view(t) == [20, 30, 40] # Chronological cache successfully invalidated and rebuilt
 
-            # Level 2: Sub-categories
-            lvl2 = keys(dt, 2)
-            @test Set(lvl2) == Set([
-                (:Fermion, :Quark),
-                (:Fermion, :Lepton),
-                (:Boson, :Gauge),
-                (:Boson, :Scalar)
-            ])
-
-            # Level 3: Full Leaves
-            lvl3 = keys(dt, 3)
-            @test length(lvl3) == 5
-            @test (:Fermion, :Quark, :up) in lvl3
-
-            # Out of Bounds
-            @test_throws ArgumentError keys(dt, 0)
-            @test_throws ArgumentError keys(dt, 4)
-        end
-
-        @testset "Mid-level SDBranch (Depth = 2 remaining)" begin
-            fermions = view(dt, (:Fermion,))
-
-            # Level 1: Sub-categories relative to :Fermion
-            lvl1 = keys(fermions, 1)
-            @test Set(lvl1) == Set([(:Quark,), (:Lepton,)])
-
-            # Level 2: Full valid suffixes for :Fermion
-            lvl2 = keys(fermions, 2)
-            @test Set(lvl2) == Set([
-                (:Quark, :up),
-                (:Quark, :down),
-                (:Lepton, :electron)
-            ])
-
-            # Out of Bounds
-            @test_throws ArgumentError keys(fermions, 0)
-            @test_throws ArgumentError keys(fermions, 3)
-        end
-
-        @testset "Deep SDBranch (Depth = 1 remaining)" begin
-            quarks = view(dt, (:Fermion, :Quark))
-
-            # Level 1: Full valid suffixes for :Quark
-            lvl1 = keys(quarks, 1)
-            @test Set(lvl1) == Set([(:up,), (:down,)])
-
-            # Out of Bounds (Branch only has 1 level left!)
-            @test_throws ArgumentError keys(quarks, 0)
-            @test_throws ArgumentError keys(quarks, 2)
-        end
-    end
-
-    @testset "Deletion and Pruning" begin
-        dt = SDTree{Tuple{Int, Symbol}, Float64}()
-        dt[1, :a] = 10.0
-        dt[1, :b] = 20.0
-        dt[2, :c] = 30.0
-
-        # delete!
-        delete!(dt, (1, :a))
-        @test length(dt) == 2
-        @test !haskey(dt, (1, :a))
-        @test dt[1, :b] == 20.0 # Ensure indices shifted correctly!
+        @test delete!(t, (99, 99)) === t
 
         # delete! via a branch view
-        dt[5, :p] = 60.0
-        dt[5, :q] = 70.0
-        br5 = view(dt, 5)
-        delete!(br5, (:p,))
-        @test length(dt) == 3
-        @test !haskey(dt, (5, :p))
-        @test haskey(dt, (5, :q))
+        br = view(t, (2,))
+        delete!(br, (1,))
+        @test length(t) == 2
+        @test !haskey(t, (2, 1))
+        @test haskey(t, (2, 2))
 
-        # Single-element prune! fallback (no tuple wrapper)
-        dt[6, :r] = 80.0
-        prune!(dt, 6) # passing Int directly instead of (6,)
-        @test !haskey(dt, (6, :r))
+        # empty! on SDBranch (Cleans all structural keys under the prefix)
+        v = view(t, (1,))
+        empty!(v)
+        @test !haskey(t, (1, 2))
+        @test length(t) == 1
 
-        # prune!
-        dt[3, :x] = 100.0
-        dt[3, :y] = 200.0
-
-        prune!(dt, (3,))
-        @test length(dt) == 3
-        @test !haskey(dt, (3, :x))
-        @test !haskey(dt, (3, :y))
-
-        # Prune via branch
-        dt[4, :m] = 40.0
-        dt[4, :n] = 50.0
-        br = view(dt, 4)
-        prune!(br, (:m,)) # Prunes at the leaf level
-        @test !haskey(dt, (4, :m))
-        @test haskey(dt, (4, :n))
+        # empty! on Root
+        empty!(t)
+        @test length(t) == 0
+        @test isempty(t.values)
     end
 
-    @testset "Stale Views" begin
+    @testset "7. Core Pruning (SDTree & SDBranch)" begin
+        t = SDTree{Tuple{Int, Int, Int}, String}()
+        t[(1, 1, 1)] = "A"
+        t[(1, 1, 2)] = "B"
+        t[(1, 2, 1)] = "C"
+        t[(2, 1, 1)] = "D"
+
+        # ----------------------------------------------------
+        # 1. Pruning SDTree directly
+        # ----------------------------------------------------
+
+        # Pruning a full key (behaves exactly like delete!)
+        prune!(t, (2, 1, 1))
+        @test !haskey(t, (2, 1, 1))
+        @test length(t) == 3
+
+        # Pruning a partial key (cascades deletion to all matching leaves)
+        prune!(t, (1, 1))
+        @test !haskey(t, (1, 1, 1))
+        @test !haskey(t, (1, 1, 2))
+        @test haskey(t, (1, 2, 1))
+        @test length(t) == 1
+
+        # Pruning an invalid/too-long key (safe no-op bounds check)
+        @test_throws ArgumentError prune!(t, (1, 2, 1, 99))
+        @test length(t) == 1
+
+        # ----------------------------------------------------
+        # 2. Pruning via SDBranch
+        # ----------------------------------------------------
+        t2 = SDTree{Tuple{Int, Int, Int}, String}()
+        t2[(1, 1, 1)] = "A"
+        t2[(1, 1, 2)] = "B"
+        t2[(1, 2, 1)] = "C"
+        t2[(1, 2, 2)] = "D"
+        t2[(2, 1, 1)] = "E"
+
+        br = view(t2, (1,))
+        @test length(br) == 4
+
+        # Prune a partial relative key
+        prune!(br, (1,))
+        @test !haskey(t2, (1, 1, 1))
+        @test !haskey(t2, (1, 1, 2))
+        @test length(br) == 2
+        @test haskey(br, (2, 1))
+        @test haskey(br, (2, 2))
+
+        # Prune a full relative key (behaves exactly like delete! on the view)
+        prune!(br, (2, 1))
+        @test !haskey(t2, (1, 2, 1))
+        @test length(br) == 1
+        @test haskey(t2, (1, 2, 2))
+
+        # Prune an invalid/too-long relative key (safe no-op bounds check)
+        @test_throws ArgumentError prune!(br, (2, 2, 99))
+        @test length(br) == 1
+    end
+
+    @testset "8. Stale Views & Safe Fallbacks" begin
         # Setup a fresh tree
         dt = SDTree((:A, :B, :C) => 1.0,
                     (:A, :B, :D) => 2.0,
                     (:X, :Y, :Z) => 3.0)
 
-        # Take views
         branch_v = view(dt, (:A, :B))
         leaf_v   = view(dt, (:A, :B, :C))
 
-        # Initial State
         @test !is_stale(branch_v)
         @test !is_stale(leaf_v)
         @test length(branch_v) == 2
         @test length(leaf_v) == 1
 
-        # Pruning an unrelated branch shouldn't affect our views
-        prune!(dt, (:X,))
+        # Deleting an unrelated leaf shouldn't affect our views
+        delete!(dt, (:X, :Y, :Z))
         @test !is_stale(branch_v)
         @test !is_stale(leaf_v)
 
-        # Prune the parent branch of our views
-        prune!(dt, (:A,))
-
-        # They should now instantly report as stale
-        @test is_stale(branch_v)
+        # Delete the leaf of our leaf view
+        delete!(dt, (:A, :B, :C))
         @test is_stale(leaf_v)
+
+        # Branch is still valid (has :D left)
+        @test !is_stale(branch_v)
+
+        # Delete the last leaf of the branch
+        delete!(dt, (:A, :B, :D))
+        @test is_stale(branch_v) # No leaves left, branch lookup explicitly drops it
 
         # Check safe fallback behaviors for the stale SDBranch
         @test length(branch_v) == 0
         @test isempty(collect(keys(branch_v)))
         @test isempty(collect(values(branch_v)))
-        @test !haskey(branch_v, (:C,))
-        @test collect(branch_v) == [] # Iteration yields nothing
+        @test !haskey(branch_v, (:D,))
+        @test collect(branch_v) == []
 
         # Check safe fallback behaviors for the stale SDLeaf
         @test length(leaf_v) == 0
         @test isempty(collect(keys(leaf_v)))
         @test isempty(collect(values(leaf_v)))
-        @test !haskey(leaf_v, (:A, :B, :C))
-        @test collect(leaf_v) == [] # Iteration yields nothing
+        @test !haskey(leaf_v, ())
+        @test collect(leaf_v) == []
 
-        # Test that `empty!` on the parent tree also makes views stale
-        dt2 = SDTree((:Fermion, :Quark) => 2.2)
-        v2 = view(dt2, (:Fermion,))
-
-        @test !is_stale(v2)
-        empty!(dt2)
-        @test is_stale(v2)
-        @test length(v2) == 0
-
-        # Test empty! on a branch view
+        # Test empty! on a branch view making itself stale
         dt3 = SDTree((:Level1, :A) => 1.0, (:Level1, :B) => 2.0, (:Level2, :C) => 3.0)
         v3 = view(dt3, (:Level1,))
         empty!(v3)
@@ -328,160 +329,133 @@ using AbstractTrees
 
         # Test empty! on a leaf view
         dt4 = SDTree((:Single, :Leaf) => 1.0)
-        v4 = view(dt4, (:Single, :Leaf))
-        empty!(v4)
-        @test is_stale(v4)
+        l4 = view(dt4, (:Single, :Leaf))
+        empty!(l4)
+        @test is_stale(l4)
         @test length(dt4) == 0
     end
 
-    @testset "Emptying and Stale State" begin
-        dt = SDTree{Tuple{Int, Int}, String}()
-        dt[1, 1] = "A"
-        dt[1, 2] = "B"
-        dt[2, 1] = "C"
+    # ==========================================================================
+    # PART 2: The Shell (DictTree, DictBranch)
+    # ==========================================================================
 
-        br = view(dt, (1,))
-        lf = view(dt, (2, 1))
+    @testset "9. DictTree Dynamic Routing & Inheritance" begin
+        dt = DictTree()
 
-        # Ensure values_view caches are populated before emptying
-        _ = values_view(dt)
-        _ = values_view(br)
+        # Dynamic Multi-Depth Heterogeneous Insertion
+        dt[(:Eng,)] = "Engineering"         # Depth 1 -> String
+        dt[(:Eng, :Sw)] = "Software"        # Depth 2 -> String
+        dt[(:Eng, :Sw, 1)] = 95.0           # Depth 3 -> Float64
 
-        # Wipe the tree
+        @test length(dt) == 3
+        @test hastree(dt, 1)
+        @test hastree(dt, 3)
+        @test !hastree(dt, 4)
+
+        @test dt[(:Eng,)] == "Engineering"
+        @test dt[(:Eng, :Sw, 1)] == 95.0
+
+        # AbstractDict Interface (Flattened iterators stitching layers together)
+        dt_keys = collect(keys(dt))
+        @test length(dt_keys) == 3
+        @test (:Eng,) in dt_keys
+        @test (:Eng, :Sw) in dt_keys
+        @test (:Eng, :Sw, 1) in dt_keys
+
+        # Initializing via dict/pairs
+        dt2 = DictTree((1,) => "A", (1, 2) => "B")
+        @test length(dt2) == 2
+        @test dt2[(1, 2)] == "B"
+    end
+
+    @testset "10. DictBranch Cross-Layer Subsets & Pruning" begin
+        dt = DictTree()
+        dt[(:A,)] = "A-Meta"
+        dt[(:A, :B)] = "B-Meta"
+        dt[(:A, :B, 1)] = 10.0
+        dt[(:A, :C, 2)] = 20.0
+        dt[(:Z,)] = "Z-Meta"
+
+        # DictBranch spans multiple layers, including the exact prefix match
+        db = view(dt, (:A,))
+
+        # Length is 4 representing relative keys: (), (:B,), (:B, 1), and (:C, 2)
+        @test length(db) == 4
+
+        # Accessing the exact match metadata via the empty tuple
+        @test haskey(db, ())
+        @test db[()] == "A-Meta"
+
+        # Accessing deeper layers via relative suffixes
+        @test haskey(db, (:B,))
+        @test db[(:B,)] == "B-Meta"
+        @test db[(:C, 2)] == 20.0
+
+        # Pruning cascades down to all applicable sub-layers
+        prune!(dt, (:A, :B))
+        @test !haskey(dt, (:A, :B))
+        @test !haskey(dt, (:A, :B, 1))
+        @test haskey(dt, (:A, :C, 2))  # Sibling unaffected
+        @test haskey(dt, (:A,))        # Parent unaffected
+
+        # Prune via branch view natively
+        prune!(db, (:C,))
+        @test !haskey(dt, (:A, :C, 2))
+
+        # Global Empty via branch view
+        empty!(db)
+        @test !haskey(dt, (:A,)) # Root of the branch should be emptied too
+        @test haskey(dt, (:Z,))  # Unrelated data remains entirely intact
+
+        # Global Empty
         empty!(dt)
-
         @test length(dt) == 0
-        @test isempty(dt.keys)
-        @test isempty(dt.values)
-        @test isempty(dt.lookup)
-        @test isempty(dt.viewid)
-        @test isempty(dt.branch_lookup[1])
-
-        # Existing views should now be safely stale
-        @test is_stale(br)
-        @test is_stale(lf)
-        @test isempty(values_view(br))
-        @test isempty(values_view(lf))
     end
 
-    @testset "values_view and Lazy Caching (Advanced Deletions)" begin
-        # 3-level tree to allow for more complex pruning
-        dt = SDTree{Tuple{Symbol, Int, String}, Float64}()
+    @testset "11. Explicit Typed Injection (add_tree! & get_tree)" begin
+        dt = DictTree()
 
-        # Initial insertions
-        dt[:a, 1, "x"] = 10.0
-        dt[:a, 2, "y"] = 20.0
-        dt[:a, 2, "z"] = 25.0
-        dt[:b, 1, "x"] = 30.0
+        # Manually lock Depth 1 to String
+        add_tree!(dt, Tuple{Int}, String)
 
-        # Create multiple overlapping views
-        br_a = view(dt, (:a,))
-        br_a2 = view(dt, (:a, 2))
-        lf_b = view(dt, (:b, 1, "x"))
+        dt[(1,)] = "Hello"
+        @test dt[(1,)] == "Hello"
 
-        # Test Initial Views
-        vv_root = values_view(dt)
-        vv_a = values_view(br_a)
+        # Enforce type safety
+        @test_throws MethodError dt[(2,)] = 100.0
 
-        @test collect(vv_root) == [10.0, 20.0, 25.0, 30.0]
-        @test collect(vv_a)    == [10.0, 20.0, 25.0]
-        @test collect(values_view(br_a2)) == [20.0, 25.0]
+        # Prevent duplicate tree injections on the same depth
+        @test_throws ArgumentError add_tree!(dt, Tuple{Int}, Float64)
 
-        # Cache Invalidation on Insertion
-        dt[:a, 3, "w"] = 40.0
-        @test collect(values_view(dt))   == [10.0, 20.0, 25.0, 30.0, 40.0]
-        @test collect(values_view(br_a)) == [10.0, 20.0, 25.0, 40.0]
+        # Retrieve direct pointer to the underlying tree layer
+        t1 = get_tree(dt, 1)
+        @test t1 isa SDTree{Tuple{Int}, String}
+        @test t1[(1,)] == "Hello"
 
-        # Swap-and-Pop Delete via the ROOT
-        delete!(dt, (:a, 1, "x"))
-        @test collect(values_view(dt))   == [20.0, 25.0, 30.0, 40.0]
-        @test collect(values_view(br_a)) == [20.0, 25.0, 40.0]
-
-        # Swap-and-Pop Delete via the BRANCH
-        # Calling delete! on a branch view should update the root and all sibling views
-        delete!(br_a, (3, "w"))
-        @test collect(values_view(dt))   == [20.0, 25.0, 30.0]
-        @test collect(values_view(br_a)) == [20.0, 25.0]
-
-        # Prune an entire root branch
-        prune!(dt, (:b,))
-        @test collect(values_view(dt)) == [20.0, 25.0]
-        @test isempty(values_view(lf_b)) # Leaf should safely detect it is stale
-
-        # Prune a sub-branch via the BRANCH view
-        # This removes (:a, 2, "y") and (:a, 2, "z") simultaneously
-        prune!(br_a, (2,))
-
-        @test isempty(values_view(dt))    # The tree should now be completely empty
-        @test isempty(values_view(br_a))  # The parent branch should be empty
-        @test isempty(values_view(br_a2)) # The nested branch should safely detect it is stale
-
-        # In-Place Mutability Test
-        # Insert a new value to test mutation
-        dt[:c, 9, "test"] = 100.0
-        br_c = view(dt, (:c,))
-
-        vv_mut = values_view(br_c)
-        vv_mut[1] = 999.0  # Write directly to the SubArray
-
-        @test dt[:c, 9, "test"] == 999.0 # Proves the view is physically mapped to the root array
+        @test_throws KeyError get_tree(dt, 99)
     end
 
-    @testset "Scalar Key Conveniences" begin
-        dt = SDTree{Tuple{Symbol}, Int}()
+    @testset "12. AbstractTrees Display Validation" begin
+        dt = DictTree()
+        dt[(:A,)] = "A-Meta"
+        dt[(:A, :B)] = "B-Meta"
+        dt[(:A, :B, 1)] = 10.0
 
-        # setindex!
-        dt[:apple] = 5
-        dt[:banana] = 10
+        # Root Shell Display verification
+        out_dt = sprint(print_tree, dt)
+        @test occursin("(root)", out_dt)
+        @test occursin(":A => \"A-Meta\"", out_dt)
+        @test occursin(":B => \"B-Meta\"", out_dt)
 
-        # haskey and getindex
-        @test haskey(dt, :apple)
-        @test dt[:banana] == 10
+        # Branch Shell Display (Checking the () wrapper interceptor output)
+        db = view(dt, (:A,))
+        out_db = sprint(print_tree, StaticDictTrees.BranchAsRoot(db))
+        @test occursin("() => \"A-Meta\"", out_db)
+        @test occursin(":B => \"B-Meta\"", out_db)
 
-        # view
-        lf = view(dt, :apple)
-        @test lf isa SDLeaf
-        @test lf[()] == 5
-
-        # delete! and prune!
-        delete!(dt, :apple)
-        @test !haskey(dt, :apple)
-        @test length(dt) == 1
-
-        prune!(dt, :banana)
-        @test isempty(dt)
-    end
-
-    @testset "AbstractTrees Integration" begin
-        dt = SDTree{Tuple{Int, Symbol}, Float64}()
-        dt[1, :a] = 10.0
-        dt[1, :b] = 20.0
-
-        # Children API
-        c_root = children(dt)
-        @test length(c_root) == 1
-        @test c_root[1] isa SDBranch
-
-        c_branch = children(c_root[1])
-        @test length(c_branch) == 2
-        @test c_branch[1] isa SDLeaf
-
-        @test isempty(children(c_branch[1])) # Leaves have no children by default
-
-        # Print formatting (Capture REPL output)
-        out_str = sprint(print_tree, dt)
-
-        @test occursin("SDTree (Root)", out_str)
-        @test occursin("1", out_str)
-        @test occursin(":a => 10.0", out_str)
-        @test occursin(":b => 20.0", out_str)
-
-        # Collection expansion fallback
-        dt_nested = SDTree{Tuple{Int}, Vector{Int}}()
-        dt_nested[1] = [99, 100]
-
-        out_nested = sprint(print_tree, dt_nested)
-        @test occursin("1 =>", out_nested) # Should not double print the vector
-        @test occursin("99", out_nested)
+        # Leaf Shell Display (Checking the 0D interceptor output)
+        lf = view(dt, (:A, :B, 1))
+        out_lf = sprint(print_tree, StaticDictTrees.BranchAsRoot(lf))
+        @test occursin("() => 10.0", out_lf)
     end
 end

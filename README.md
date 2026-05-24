@@ -1,6 +1,6 @@
 # StaticDictTrees.jl
 
-**StaticDictTrees.jl** maps fixed-length `Tuple` keys to values, just like a standard `Dict` would.  Also, it allows you to obtain tree-like views on a branch identified by an incomplete key.
+**StaticDictTrees.jl** maps fixed-length `Tuple` keys to values, just like a standard `Dict` would. Also, it allows you to obtain tree-like views on a branch identified by an incomplete key, and optionally store intermediate metadata values directly at those branch levels.
 
 ```julia
 using StaticDictTrees
@@ -50,6 +50,7 @@ println(leptons[:electron])
 * **O(1) complexity:** Lookups, insertions, updates, and single-item deletions (`delete!`) have O(1) complexity. Branch pruning (`prune!`) scales proportionally to the number of items being removed;
 * **Cache-friendly:** All values are stored contiguously in a single flat `Vector`;
 * **Zero-allocation views:** Instantly step into sub-branches without allocating new dictionaries or copying data;
+* **Intermediate Metadata:** Store and retrieve data at any branch level using partial keys, with optional strict typing via the `IVT` keyword;
 * **100% compatible with Julia ecosystem:** Fully implements the `AbstractDict` and `AbstractTrees.jl` interfaces;
 * **Type Stable:** Natively supports heterogeneous tuple keys (e.g., `Tuple{Int, Symbol, String}`) without type instability.
 
@@ -89,6 +90,30 @@ dt[2, :local,  "cache"]   = 2.1
 If you plan to insert a large number of entries, you can improve performance and reduce memory allocations by pre-allocating the internal memory using `sizehint!`:
 ```julia
 sizehint!(dt, 1_000_000)
+```
+
+### Intermediate Values (Metadata)
+
+In addition to leaf data, you can assign metadata to any intermediate branch by using an incomplete (partial) key. By default, these intermediate values accept the `Any` type, but you can strictly type them using the `IVT` (Intermediate Value Types) keyword argument.
+
+```julia
+# Create a tree mapping a 3-level Tuple to a Float64, with specific metadata types:
+# Depth 1 Metadata -> String
+# Depth 2 Metadata -> Int
+# Depth 3 Leaf     -> Float64
+dt_meta = SDTree{Tuple{Symbol, Symbol, Symbol}, Float64}(IVT=[String, Int])
+
+# Insert leaf data as usual
+dt_meta[:Engineering, :Software, :Alice] = 95000.0
+
+# Insert metadata at depth 1 (Department level)
+dt_meta[:Engineering] = "Main Tech Hub"
+
+# Insert metadata at depth 2 (Team level)
+dt_meta[:Engineering, :Software] = 15 # e.g., number of team members
+
+# Retrieve metadata using incomplete keys
+hub = dt_meta[:Engineering] # "Main Tech Hub"
 ```
 
 
@@ -147,16 +172,16 @@ end
 # Convert to a standard dictionary
 Dict(part_mass)
 
-# Get all keys
+# Get all leaf keys
 keys(part_mass)
 
-# Get all values (returns a lazy iterator, just like a standard Dict)
+# Get all leaf values (returns a lazy iterator, just like a standard Dict)
 values(part_mass)
 
-# Get all values as a zero-allocation `SubArray` view preserving insertion order
+# Get all leaf values as a zero-allocation `SubArray` view preserving insertion order
 values_view(part_mass)
 
-# Print number of entries
+# Print number of explicitly assigned leaf entries
 length(part_mass)
 ```
 
@@ -193,19 +218,17 @@ println(is_leaf_level(view(part_mass, (:Fermion)))) # false
 println(is_leaf_level(view(part_mass, (:Fermion, :Quark)))) # true
 println(view(part_mass, (:Fermion, :Quark))[:up]) # the view is at leaf level, hence we can use a scalar value as key
 
-# Retrieve unique prefixes down to a specific depth
-# Level 1 returns the root categories
+# Check if explicit metadata or leaf data is set at a key
+haskey(part_mass, (:Fermion,)) # false (unless metadata was assigned!)
+hasbranch(part_mass, (:Fermion,)) # true (the structural path exists)
+
+# Retrieve explicitly assigned keys down to a specific depth
+# Level 1 returns the root categories (assuming metadata is set)
 collect(keys(part_mass, 1))
+
+# Retrieve all valid structural paths at depth 1 (regardless of metadata)
+collect(branches(part_mass, 1))
 # Output: [(:Fermion,), (:Boson,)]
-
-# Level 2 returns the sub-categories
-collect(keys(part_mass, 2))
-# Output: [(:Fermion, :Quark), (:Fermion, :Lepton), (:Boson, :Gauge), (:Boson, :Scalar)]
-
-# For a branch, the level is relative to the branch's root
-fermions = view(part_mass, (:Fermion,))
-collect(keys(fermions, 1))
-# Output: [(:Quark,), (:Lepton,)]
 
 # Navigate upward from a specific view
 quarks = view(part_mass, (:Fermion, :Quark))
@@ -225,8 +248,8 @@ prune!(part_mass, (:Boson,))
 prune!(view(part_mass, (:Fermion,)), (:Quark,))
 
 # All operations on a branch are reflected into the parent tree, i.e. the part_mass now contains only "Fermions":
-keys(part_mass, 1)
-# Output: :Fermion
+collect(branches(part_mass, 1))
+# Output: [(:Fermion,)]
 ```
 
 ## Check $O(1)$ scalability
