@@ -343,7 +343,7 @@ Always returns `false` for the root `SDTree`.
 It is highly recommended to check `is_stale(v)` before mutating, accessing or iterating over a view, as the parent tree may have changed.
 """
 is_stale( ::SDTree) = false
-is_stale(v::SDBranch{KT, PT}) where {KT, PT} = !haskey(v.root.branch_lookup[fieldcount(PT)], v.prefix)
+is_stale(v::SDBranch{KT, PT}) where {KT, PT} = (length(v.lookup) == 0)
 is_stale(v::SDLeaf) = !haskey(v.root.lookup, v.key)
 
 """
