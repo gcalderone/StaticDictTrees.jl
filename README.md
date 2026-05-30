@@ -339,45 +339,45 @@ True $O(1)$ complexity means that elapsed time during operations remains constan
 The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete using `SDTree` and a view on it (`SDBranch`), as well as compare the corresponding times obtained with the standard `Dict`.  It also measures the performance for pruning operations (only for `SDTree` and `SDBranch`).  The example covers the cases N=1,000 and N=1,000,000 datasets.
 ```
 julia> include("test/check_performance.jl")
--- Generate small (N=1,000) and large (N=1,000,000) datasets, and corresponding views containing half the entries ---
+--- Generate small (N=1,000) and large (N=1,000,000) datasets, and corresponding views containing half the entries ---
 
 --- Test lookups ---
-Dict       (N=    1000), Avg. time:      0.074 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.128 μs, Allocated:    0 MB
-SDTree     (N=    1000), Avg. time:      0.129 μs, Allocated:    0 MB
-SDTree     (N= 1000000), Avg. time:      0.202 μs, Allocated:    0 MB
-SDBranch   (N=     500), Avg. time:      0.107 μs, Allocated:    0 MB
-SDBranch   (N=  500000), Avg. time:      0.179 μs, Allocated:    0 MB
+Dict       (N=    1000), Avg. time:      0.090 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.133 μs, Allocated:    0 MB
+SDTree     (N=    1000), Avg. time:      0.127 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      0.209 μs, Allocated:    0 MB
+SDBranch   (N=     500), Avg. time:      0.077 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      0.180 μs, Allocated:    0 MB
 
 --- Test update ---
-Dict       (N=    1000), Avg. time:      0.088 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.154 μs, Allocated:    0 MB
-SDTree     (N=    1000), Avg. time:      0.359 μs, Allocated:    0 MB
-SDTree     (N= 1000000), Avg. time:      0.376 μs, Allocated:    0 MB
-SDBranch   (N=     500), Avg. time:      0.202 μs, Allocated:    0 MB
-SDBranch   (N=  500000), Avg. time:      0.380 μs, Allocated:    0 MB
+Dict       (N=    1000), Avg. time:      0.093 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.152 μs, Allocated:    0 MB
+SDTree     (N=    1000), Avg. time:      0.205 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      0.366 μs, Allocated:    0 MB
+SDBranch   (N=     500), Avg. time:      0.285 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      0.390 μs, Allocated:    0 MB
 
 --- Test insertion ---
-Dict       (N=    1000), Avg. time:      0.051 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.247 μs, Allocated:  164 MB
-SDTree     (N=    1000), Avg. time:      0.496 μs, Allocated:    0 MB
-SDTree     (N= 1000000), Avg. time:      1.545 μs, Allocated:  393 MB
-SDBranch   (N=     500), Avg. time:      0.653 μs, Allocated:    0 MB
-SDBranch   (N=  500000), Avg. time:      1.528 μs, Allocated:  149 MB
+Dict       (N=    1000), Avg. time:      0.047 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.260 μs, Allocated:  164 MB
+SDTree     (N=    1000), Avg. time:      0.653 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      1.751 μs, Allocated:  393 MB
+SDBranch   (N=     500), Avg. time:      0.820 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      1.657 μs, Allocated:  149 MB
 
 --- Test delete ---
-Dict       (N=    1000, deleted    100 entries), Avg. time:      0.247 μs, Allocated:    0 MB
-Dict       (N= 1000000, deleted    100 entries), Avg. time:      0.310 μs, Allocated:    0 MB
-SDTree     (N=    1000, deleted    100 entries), Avg. time:      1.961 μs, Allocated:    0 MB
-SDTree     (N= 1000000, deleted    100 entries), Avg. time:      3.407 μs, Allocated:    0 MB
-SDBranch   (N=     500, deleted    100 entries), Avg. time:      1.771 μs, Allocated:    0 MB
-SDBranch   (N=  500000, deleted    100 entries), Avg. time:      3.459 μs, Allocated:    0 MB
+Dict       (N=    1000, deleted    100 entries), Avg. time:      0.272 μs, Allocated:    0 MB
+Dict       (N= 1000000, deleted    100 entries), Avg. time:      0.437 μs, Allocated:    0 MB
+SDTree     (N=    1000, deleted    100 entries), Avg. time:      2.169 μs, Allocated:    0 MB
+SDTree     (N= 1000000, deleted    100 entries), Avg. time:      3.555 μs, Allocated:    0 MB
+SDBranch   (N=     500, deleted    100 entries), Avg. time:      1.914 μs, Allocated:    0 MB
+SDBranch   (N=  500000, deleted    100 entries), Avg. time:      3.485 μs, Allocated:    0 MB
 
 --- Test prune ---
-SDTree     (N=    1000, deleted    500 entries), Avg. time:      0.889 μs, Allocated:    0 MB
-SDTree     (N= 1000000, deleted 500000 entries), Avg. time:      2.264 μs, Allocated:   15 MB
-SDBranch   (N=     500, deleted    500 entries), Avg. time:      0.928 μs, Allocated:    0 MB
-SDBranch   (N=  500000, deleted 500000 entries), Avg. time:      2.322 μs, Allocated:   15 MB
+SDTree     (N=    1000, deleted    500 entries), Avg. time:      1.010 μs, Allocated:    0 MB
+SDTree     (N= 1000000, deleted 500000 entries), Avg. time:      2.102 μs, Allocated:   11 MB
+SDBranch   (N=     500, deleted    500 entries), Avg. time:      0.962 μs, Allocated:    0 MB
+SDBranch   (N=  500000, deleted 500000 entries), Avg. time:      2.154 μs, Allocated:    8 MB
 (pruning is not supported by Dict ...)
 ```
 Note: all the above timings are calculated per *single operation*, while the allocated memory is reported as total allocations.
