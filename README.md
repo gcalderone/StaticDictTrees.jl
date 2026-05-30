@@ -2,7 +2,7 @@
 
 ---
 
-**StaticDictTrees.jl** provides a data structure to map fixed-length `Tuple` keys to values, just like a standard `Dict` would. Also, it allows you to obtain tree-like views on a branch identified by an incomplete key. Finally, it allows you to access the vector containing all values inserted.
+StaticDictTrees.jl provides a data structure that maps fixed-length `Tuple` keys to values, just like a standard `Dict` would.  Also, it treats the tuple as a hierarchical path where each element represents a specific step along a branch, thus allowing to represent tree-like data structures as well as to isolate specific branches when the provided `Tuple` key is incomplete.  Finally, it allows you to access the elements as a single, contiguous vector with no need for nested loops.
 
 > [!WARNING]
 > Breaking Changes in v0.2.0
@@ -38,21 +38,22 @@ println(part_mass[:Fermion, :Lepton, :electron])
 # ... or create a view based on an incomplete key (branch)
 leptons = view(part_mass, (:Fermion, :Lepton))
 println(leptons[:electron])
+# 0.510998
 
-## Obtain a view on the internal values vector
-julia> println(values_view(leptons))
-[0.510998, 105.658, 1776.86, 0.0, 0.0, 0.0]
+# Obtain a view on the internal values vector
+println(values_view(leptons))
+# [0.510998, 105.658, 1776.86, 0.0, 0.0, 0.0]
 ```
 
 ## Introduction
 
 The structures provided by **StaticDictTrees.jl** are:
 - `SDTree`: provides a fast, tree-like hierarchical data structure with an `AbstractDict` interface and `Tuple` as keys. The tree depth is equal to the length of the `Tuple` key and is fixed (hence "static" in the package name);
-- `SDBranch`: provides the same performance on a type-stable view of a specific branch of an `SDTree` object, allowing updates to be seamlessly reflected in the original tree. An `SDBranch` is created by invoking the `view` function on an `SDTree` and providing an incomplete key representing the path to a branch.
+- `SDBranch`: provides a type-stable view of a specific branch of an `SDTree` object, allowing updates to be seamlessly reflected in the original tree. An `SDBranch` is created by invoking the `view` function on an `SDTree` and providing an incomplete key representing the path to a branch.
 
-In order to remove the limitation of the fixed tree depth, v0.2.0 of the package introduces two new data structures:
-- `DictTree`: to manage a collection of static trees (i.e., `SDTree` objects) and to dynamically dispatch method calls depending on key length;
-- `DictBranch`: similar to `SDBranch`, it provides a view on a specific branch of a `DictTree`, allowing you to access / modify its values using incomplete keys.
+In order to remove the limitation of a fixed tree depth, v0.2.0 of the package introduces two new data structures:
+- `DictTree`: to manage a collection of static trees (namely `SDTree` objects) and to dynamically dispatch method calls depending on key length;
+- `DictBranch`: similar to `SDBranch`, it provides a view on a specific branch of a `DictTree`, allowing you to access / modify its values using an incomplete key prefix.
 
 While slightly slower than their static-depth counterparts (`SDTree` and `SDBranch`) due to the dynamic routing overhead, they allow you to insert and retrieve data at any arbitrary depth. On the other hand, there is no `values_view` defined for `DictTree` and `DictBranch` since their value vectors are scattered among different depths.
 
@@ -77,13 +78,13 @@ While slightly slower than their static-depth counterparts (`SDTree` and `SDBran
 
 - You need $O(1)$ performance on a fixed depth tree-like data structure, while still being able to quickly access data based on an incomplete key (branch);
 
-- You need to represent your tree data using a dictionary, but you also need to access the values without memory allocation (i.e., using a view on a vector); 
+- You need to represent your tree data using a dictionary, but you also need to access the values in a vector without additional memory allocation due to (e.g.) a `collect` invocation;
 
 - You need something similar to a multi-dimensional sparse array whose indexing is based on a generic `Tuple`, rather than a tuple of integers;
 
 - You need to implement an in-memory database index based on a composite primary key;
 
-- You need a data structure to represent a generic tree dictionary with arbitrary depths, but you also need $O(1)$ performance on a specific branch.
+- You need a data structure to represent a generic tree dictionary with arbitrary depths, but you also need $O(1)$ performance on a specific fixed-depth branch.
 
 
 ## Installation
@@ -124,6 +125,7 @@ v = view(part_mass, (:Fermion, :Lepton))
 # Updating the view mutates the underlying tree data
 v[:electron_neutrino] = NaN
 
+# Check the original tree
 part_mass[:Fermion, :Lepton, :electron_neutrino]
 # NaN
 ```
@@ -255,9 +257,9 @@ prune!(view(part_mass, (:Fermion,)), (:Quark,))
 
 ## Variable depth trees with `DictTree` and `DictBranch`
 
-While `SDTree` guarantees maximum performance by enforcing a fixed depth, real-world data is often heterogeneous. E.g., you might want to store high-level metadata at depth 1, sub-category details at depth 2, and raw data at depth 3.
+While `SDTree` guarantees maximum performance by enforcing a fixed depth, real-world data may be heterogeneous. E.g., you might want to store high-level metadata at depth 1, sub-category details at depth 2, and raw data at depth 3.
 
-Version 0.2.0 of this package introduces the `DictTree` structure which acts as a dynamic manager of a collection of optimized `SDTree`s, each with its own fixed depth. It automatically routes method calls to the appropriate tree depending on the length of the `Tuple` key:
+Version 0.2.0 of this package introduces the `DictTree` structure which acts as a collection of `SDTree` objects, each with its own fixed depth, and automatically routes method calls to the appropriate tree depending on the length of the `Tuple` key:
 
 ### Basic Usage
 
@@ -268,9 +270,9 @@ using StaticDictTrees
 dt = DictTree()
 
 # Insert data at various depths!
-dt[(:Engineering,)] = "Main Tech Hub"               # Depth 1
-dt[(:Engineering, :Software)] = "Backend Team"      # Depth 2
-dt[(:Engineering, :Software, :Alice)] = 95000.0     # Depth 3
+dt[(:Engineering,)] = "Main Tech Hub"               # depth 1
+dt[(:Engineering, :Software)] = "Backend Team"      # depth 2
+dt[(:Engineering, :Software, :Alice)] = 95000.0     # depth 3
 ```
 
 ### Multi-Layer Views (`DictBranch`)
@@ -292,7 +294,7 @@ println(eng[(:Software, :Alice)])
 
 ### Accessing internal trees
 
-As anticipated, the use of `DictTree` and `DictBranch` involves a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth you can use the `get_tree` method to retrieve the proper `SDTree` object natively, e.g.:
+As anticipated, the use of `DictTree` and `DictBranch` involves a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth tree you can use the `get_tree` method to retrieve the proper `SDTree` object natively, e.g.:
 ```julia
 dt[:Engineering]               # This requires a dynamic dispatch
 fast_tree = get_tree(dt, 1);   # Access the SDTree object with depth=1
@@ -304,7 +306,7 @@ To check if a specific depth tree is present in `DictTree` you may use the `hasd
 
 ### Cross-Layer Pruning
 
-Because a `DictTree` handles multiple depths simultaneously, pruning is highly cascading. Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match *and* recursively delete all associated elements across every deeper layer in the entire structure.
+Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match and recursively delete all associated elements across every deeper layer in the entire structure.
 
 ```julia
 # This will delete the data at (:Engineering, :Software)
@@ -319,10 +321,10 @@ println(haskey(dt, (:Engineering,)))                   # true (Parent is untouch
 
 ### Value types of internal trees
 
-By default, dynamically created trees use `Any` as their value type to allow for flexible, heterogeneous routing. If you want strict type safety and performance for a specific depth layer, you can manually pre-allocate it using `add_tree!`:
+By default, dynamically created trees use `Any` as their value type to allow for flexible, heterogeneous routing. If you want strict type safety and performance for a specific depth layer, you can manually specify the value type by using `add_tree!`:
 
 ```julia
-# Strictly lock depth 1 to only accept Integer keys and String values
+# Allocate depth 1 tree to only accept Integer keys and String values
 dt = DictTree()
 add_tree!(dt, Tuple{Symbol}, String)
 
@@ -385,7 +387,7 @@ Note: all the above timings are calculated per *single operation*, while the all
 
 As expected, the average elapsed times for lookups, updates, and deletions on an `SDTree` scale similarly to a standard `Dict`, and show similar performance. Furthermore, these operations require exactly zero memory allocations.
 
-Single insertions, on the other hand, provide slightly worse performance due to the population of internal structures. This additional load may partly be mitigated by invoking `sizehint!`.
+Single insertions, on the other hand, provide slightly worse performance due to the need to populate internal structures. This additional load may partly be mitigated by invoking `sizehint!`.
 
 Branch pruning (`prune!`) is not supported by `Dict`, hence a direct comparison is not possible. However, the results show that it is able to perform massive batch deletions in just a few microseconds.
 
