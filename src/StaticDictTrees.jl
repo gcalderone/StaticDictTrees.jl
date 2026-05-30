@@ -169,7 +169,7 @@ struct SDBranch{KT, PT, ST, VT} <: AbstractSDTree{ST, VT}
     function SDBranch(d::SDTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
         N = fieldcount(KT)
         M = fieldcount(PT)
-        @assert M < N "Prefix length must be strictly less than key length."
+        (M < N)  ||  throw(ArgumentError("Prefix length ($M) must be strictly less than key length ($N)."))
         if haskey(d.branch_lookup[M], prefix)
             ST = Tuple{fieldtypes(KT)[M+1:end]...}
             new{KT, PT, ST, VT}(d, prefix, d.branch_lookup[M][prefix])
@@ -432,7 +432,7 @@ view(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple} = length(prefix) == field
 view(d::SDTree{KT}, prefix)        where {KT <: Tuple} = view(d, (prefix,))
 
 view(v::SDBranch{KT, PT, ST}, suffix::Tuple) where {KT, PT, ST} = length(suffix) == fieldcount(ST)  ?  SDLeaf(v.root, (v.prefix..., suffix...))  :  SDBranch(v.root, (v.prefix..., suffix...))
-view(v::SDBranch{KT, PT, ST}, suffix)        where {KT, PT, ST} = view(v, (key,))
+view(v::SDBranch{KT, PT, ST}, suffix)        where {KT, PT, ST} = view(v, (suffix,))
 
 
 include("DictTrees.jl")

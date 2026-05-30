@@ -151,7 +151,7 @@ using StaticDictTrees
         @test v1[(1, 1)] == "A_mod"
 
         # View bounds & missing branch safety checking
-        @test_throws AssertionError view(t, (1, 1, 1, 99)) # Key too long
+        @test_throws ArgumentError view(t, (1, 1, 1, 99)) # Key too long
         @test_throws KeyError view(t, (99,))
         @test_throws KeyError view(v1, (99,))
     end
