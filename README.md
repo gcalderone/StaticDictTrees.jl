@@ -2,11 +2,11 @@
 
 ---
 
-**StaticDictTrees.jl** provides a data structure to map fixed-length `Tuple` keys to values, just like a standard `Dict` would. Also, it allows you to obtain tree-like views on a branch identified by an incomplete key.  Finally, it allows to access the vector containing all values inserted.2
+**StaticDictTrees.jl** provides a data structure to map fixed-length `Tuple` keys to values, just like a standard `Dict` would. Also, it allows you to obtain tree-like views on a branch identified by an incomplete key. Finally, it allows you to access the vector containing all values inserted.
 
 > [!WARNING]
 > Breaking Changes in v0.2.0
-> The `keys(::SDTree, level::Int)` or `branches` methods are no longer supported.  Also, the possibility to inserte "metadata" using incomplete keys is no longer provided since the same functionality can now be otained using the `DictTree` and `DictBranch` structures.
+> The `keys(::SDTree, level::Int)` or `branches` methods are no longer supported. Also, the possibility to insert "metadata" using incomplete keys is no longer provided since the same functionality can now be obtained using the `DictTree` and `DictBranch` structures.
 
 
 ## Quick start
@@ -47,26 +47,26 @@ julia> println(values_view(leptons))
 ## Introduction
 
 The structures provided by **StaticDictTrees.jl** are:
-- `SDTree`: provide a fast a tree-like hierarchical data structure with `AbstractDict` interface and `Tuple` as keys.  The tree depth is equal to the length of the `Tuple` key and is fixed (hence "static" in the package name;
-- `SDBranch`: provide same performance on a type-stable view of a specific branch of a `SDTree` object, allowing updates to be seamlessly reflected in the original tree.  A `SDBranch` is created by invoking the `view` function on an `SDTree`, and providing an incomplete key representing the path to a branch.
+- `SDTree`: provides a fast, tree-like hierarchical data structure with an `AbstractDict` interface and `Tuple` as keys. The tree depth is equal to the length of the `Tuple` key and is fixed (hence "static" in the package name);
+- `SDBranch`: provides the same performance on a type-stable view of a specific branch of an `SDTree` object, allowing updates to be seamlessly reflected in the original tree. An `SDBranch` is created by invoking the `view` function on an `SDTree` and providing an incomplete key representing the path to a branch.
 
-In order to remove the limitation of the fixed tree depth, the v0.2.0 of the package introduces two new data structures:
-- `DictTree`: to manage a collection of static trees i.e. (`SDTree` objects) and to dynamically dispatch method calls depending on key length;
-- `DictBranch`: similar to `SDBranch`, it provides a view on a specific branch of a `DictTree`, allowing to access / modify its values using incomplete keys.
+In order to remove the limitation of the fixed tree depth, v0.2.0 of the package introduces two new data structures:
+- `DictTree`: to manage a collection of static trees (i.e., `SDTree` objects) and to dynamically dispatch method calls depending on key length;
+- `DictBranch`: similar to `SDBranch`, it provides a view on a specific branch of a `DictTree`, allowing you to access / modify its values using incomplete keys.
 
-While slightly slower than the static-depth counterparts (`SDTree` and `SDBranch`) due to the dynamic routing overhead, they allows you to insert and retrieve data at any arbitrary depth.  On the other hand, there is no `values_view` defined for `SDTree` and `SDBranch` since their value vectors are scattered among different depths.
+While slightly slower than their static-depth counterparts (`SDTree` and `SDBranch`) due to the dynamic routing overhead, they allow you to insert and retrieve data at any arbitrary depth. On the other hand, there is no `values_view` defined for `DictTree` and `DictBranch` since their value vectors are scattered among different depths.
 
 
 ### Features
 
-* O(1) complexity for lookups, insertions, updates and single-item deletions (`delete!`) for `SDTree` and `SDBranch`.  Pruning a branch (`prune!`) scales proportionally to the number of items being removed;
-* Zero-allocation view on any branch of a static depth tree, with no need to allocate new dictionaries or copying data (`view`);
-* Provide a view to access the underlying contiguous (i.e. dense) `Vector` of values (`values_view`).
-* Availability of `delete!`  and `prune!` methods to delete a single leaf value or an entire branch respectively;
-* Availability of `DictTree` and `DictBranch` structure to operate on trees with arbitrary depths;
-* Iterate all trees sequentially, i.e. with no nested loops;
+* $O(1)$ complexity for lookups, insertions, updates, and single-item deletions (`delete!`) for `SDTree` and `SDBranch`. Pruning a branch (`prune!`) scales proportionally to the number of items being removed;
+* Zero-allocation views on any branch of a static depth tree, with no need to allocate new dictionaries or copy data (`view`);
+* Provides a view to access the underlying contiguous (i.e., dense) `Vector` of values (`values_view`);
+* Availability of `delete!` and `prune!` methods to delete a single leaf value or an entire branch respectively;
+* Availability of `DictTree` and `DictBranch` structures to operate on trees with arbitrary depths;
+* Iterate all trees sequentially, i.e., with no nested loops;
 * Compatible with `AbstractDict` and `AbstractTrees` interfaces;
-* Dedicated `show()` methods allows to easily display tree structure in the REPL;
+* Dedicated `show()` methods allow you to easily display the tree structure in the REPL;
 * Docstrings available for all methods.
 
 
@@ -77,13 +77,13 @@ While slightly slower than the static-depth counterparts (`SDTree` and `SDBranch
 
 - You need $O(1)$ performance on a fixed depth tree-like data structure, while still being able to quickly access data based on an incomplete key (branch);
 
-- You need to represent your tree data using a dictionary, but you also need to access the values without memory allocation (i.e. using a view on a vector); 
+- You need to represent your tree data using a dictionary, but you also need to access the values without memory allocation (i.e., using a view on a vector); 
 
 - You need something similar to a multi-dimensional sparse array whose indexing is based on a generic `Tuple`, rather than a tuple of integers;
 
 - You need to implement an in-memory database index based on a composite primary key;
 
-- You need a data structure to represent generic tree dictionary with arbitrary depths, but you also need $O(1)$ performance on a specific branch.
+- You need a data structure to represent a generic tree dictionary with arbitrary depths, but you also need $O(1)$ performance on a specific branch.
 
 
 ## Installation
@@ -95,7 +95,7 @@ pkg> add StaticDictTrees
 
 ## Static Dict Tree creation
 
-Create an empty tree by specifying the fixed `Tuple` type to be used as keys.  Any tuple can be used for the purpose:
+Create an empty tree by specifying the fixed `Tuple` type to be used as keys. Any tuple can be used for the purpose:
 
 ```julia
 using StaticDictTrees
@@ -132,7 +132,7 @@ part_mass[:Fermion, :Lepton, :electron_neutrino]
 
 `StaticDictTrees` views hold direct memory references to the parent tree.
 
-When the underlying data is removed from the parent tree by meant of `delete!`, `prune!` or `empty!` the view safely transitions into a **stale** state, namely a state in which the stale view acts as an empty collection (length 0, empty iterators) and prevents unhandled memory errors. You can manually check this state using the `is_stale()` function:
+When the underlying data is removed from the parent tree by means of `delete!`, `prune!` or `empty!` the view safely transitions into a **stale** state, namely a state in which the stale view acts as an empty collection (length 0, empty iterators) and prevents unhandled memory errors. You can manually check this state using the `is_stale()` function:
 
 ```julia
 # Create a view
@@ -231,7 +231,7 @@ println(is_leaf_level(view(part_mass, (:Fermion,)))) # false
 println(is_leaf_level(view(part_mass, (:Fermion, :Quark)))) # true
 println(view(part_mass, (:Fermion, :Quark))[:up]) # the view is at leaf level, hence we can use a scalar value as key
 
-# Check for key existence
+# Check for explicit key existence
 haskey(part_mass, (:Fermion, :Lepton, :electron)) # true
 
 # Navigate upward from a specific view
@@ -257,7 +257,7 @@ prune!(view(part_mass, (:Fermion,)), (:Quark,))
 
 While `SDTree` guarantees maximum performance by enforcing a fixed depth, real-world data is often heterogeneous. E.g., you might want to store high-level metadata at depth 1, sub-category details at depth 2, and raw data at depth 3.
 
-Version 0.2.0 of this packae introduces the `DictTree` structure which acts as a dynamic manager of a collection of optimized `SDTree`s, each with its own fixed depth, and automatically routes method calls to the appropriate tree depending on the length of the `Tuple` key:
+Version 0.2.0 of this package introduces the `DictTree` structure which acts as a dynamic manager of a collection of optimized `SDTree`s, each with its own fixed depth. It automatically routes method calls to the appropriate tree depending on the length of the `Tuple` key:
 
 ### Basic Usage
 
@@ -292,11 +292,11 @@ println(eng[(:Software, :Alice)])
 
 ### Accessing internal trees
 
-As anticipated, the use of `DictTree` and `DictBranch` involve a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth you can use the `get_tree` method to retrieve the proper `SDTree` object, e.g.:
+As anticipated, the use of `DictTree` and `DictBranch` involves a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth you can use the `get_tree` method to retrieve the proper `SDTree` object natively, e.g.:
 ```julia
 dt[:Engineering]               # This requires a dynamic dispatch
-fast_tree = get_tree(dt, 1)l;  # access the SDTree object with depth=1
-fast_tree[:Engineering]        # This is type stable
+fast_tree = get_tree(dt, 1);   # Access the SDTree object with depth=1
+fast_tree[:Engineering]        # This is type-stable and O(1)
 ```
 
 To check if a specific depth tree is present in `DictTree` you may use the `hasdepth` function.
@@ -307,7 +307,7 @@ To check if a specific depth tree is present in `DictTree` you may use the `hasd
 Because a `DictTree` handles multiple depths simultaneously, pruning is highly cascading. Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match *and* recursively delete all associated elements across every deeper layer in the entire structure.
 
 ```julia
-# This will delete the ata at (:Engineering, :Software)
+# This will delete the data at (:Engineering, :Software)
 # and the leaf data at (:Engineering, :Software, :Alice)
 prune!(dt, (:Engineering, :Software))
 
@@ -334,9 +334,9 @@ dt[(:Engineering,)] = "Main Tech Hub"
 
 ## Check $O(1)$ scalability
 
-True $O(1)$ complexity means that elapsed time during operations remains constant regardless of the dataset's size.  In the real world, however, it is difficult to empirically verify such statement due to a number of optimizations occurring at different levels (compiler, operating system, CPU cache, etc.)
+True $O(1)$ complexity means that elapsed time during operations remains constant regardless of the dataset's size. In the real world, however, it is difficult to empirically verify such a statement due to a number of optimizations occurring at different levels (compiler, operating system, CPU cache, etc.).
 
-The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete using `SDTree` and a view on it (`SDBranch`), as well as compare the corresponding times obtained with the standard `Dict`.  It also measures the performance for pruning operations (only for `SDTree` and `SDBranch`).  The example covers the cases N=1,000 and N=1,000,000 datasets.
+The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete using `SDTree` and a view on it (`SDBranch`), as well as compare the corresponding times obtained with the standard `Dict`. It also measures the performance for pruning operations (only for `SDTree` and `SDBranch`). The example covers the cases N=1,000 and N=1,000,000 datasets.
 ```
 julia> include("test/check_performance.jl")
 --- Generate small (N=1,000) and large (N=1,000,000) datasets, and corresponding views containing half the entries ---
@@ -387,7 +387,7 @@ As expected, the average elapsed times for lookups, updates, and deletions on an
 
 Single insertions, on the other hand, provide slightly worse performance due to the population of internal structures. This additional load may partly be mitigated by invoking `sizehint!`.
 
-Branch pruning (`prune!`) is not supported by `Dict`, hence a direct comparison is not possible. However, the results shows that it is able to perform massive batch deletions in just a few microseconds.
+Branch pruning (`prune!`) is not supported by `Dict`, hence a direct comparison is not possible. However, the results show that it is able to perform massive batch deletions in just a few microseconds.
 
 Finally, the performance on zero-allocation views (`SDBranch`) is nearly identical to operating directly on the root `SDTree`.
 
