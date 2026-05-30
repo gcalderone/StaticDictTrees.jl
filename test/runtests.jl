@@ -348,9 +348,9 @@ using StaticDictTrees
         dt[(:Eng, :Sw, 1)] = 95.0           # Depth 3 -> Float64
 
         @test length(dt) == 3
-        @test hastree(dt, 1)
-        @test hastree(dt, 3)
-        @test !hastree(dt, 4)
+        @test hasdepth(dt, 1)
+        @test hasdepth(dt, 3)
+        @test !hasdepth(dt, 4)
 
         @test dt[(:Eng,)] == "Engineering"
         @test dt[(:Eng, :Sw, 1)] == 95.0

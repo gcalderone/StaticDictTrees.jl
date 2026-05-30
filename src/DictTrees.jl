@@ -1,4 +1,4 @@
-export DictTree, DictBranch, get_tree, hastree, add_tree!
+export DictTree, DictBranch, get_tree, hasdepth, add_tree!
 
 """
     DictTree()
@@ -25,20 +25,12 @@ DictTree(keys::AbstractVector, values::AbstractVector) = _populate_dict!(DictTre
 # ------------------------------------------------------------------------------
 # Routing API
 # ------------------------------------------------------------------------------
-function _get_or_create_tree!(dt::DictTree, key::Tuple, ::Type{VT}) where {VT}
-    target_depth = length(key)
-    if haskey(dt.trees, target_depth)
-        return dt.trees[target_depth]
-    end
-
-    KT = typeof(key)
-    new_tree = SDTree{KT, VT}()
-    dt.trees[target_depth] = new_tree
-    return new_tree
-end
-
 function Base.setindex!(dt::DictTree, value, key::Tuple)
-    target_tree = _get_or_create_tree!(dt, key, typeof(value))
+    target_depth = length(key)
+    if !haskey(dt.trees, target_depth)
+        dt.trees[target_depth] = SDTree{typeof(key), Any}()  # trees created here always have `Any` values
+    end
+    target_tree = dt.trees[target_depth]
     target_tree[key] = value
 end
 Base.setindex!(dt::DictTree, value, key) = setindex!(dt, value, (key,))
@@ -169,13 +161,13 @@ get_tree(dt::DictTree, depth::Int) = dt.trees[depth]
 get_tree(db::DictBranch, depth::Int) = db.branches[depth]
 
 """
-    hastree(dt::DictTree, depth::Int)
-    hastree(db::DictBranch, depth::Int)
+    hasdepth(dt::DictTree, depth::Int)
+    hasdepth(db::DictBranch, depth::Int)
 
 Returns `true` if the shell currently manages a tree or branch at the explicitly requested `depth`.
 """
-hastree(dt::DictTree, depth::Int) = haskey(dt.trees, depth)
-hastree(db::DictBranch, depth::Int) = haskey(db.branches, depth)
+hasdepth(dt::DictTree, depth::Int) = haskey(dt.trees, depth)
+hasdepth(db::DictBranch, depth::Int) = haskey(db.branches, depth)
 
 
 # ------------------------------------------------------------------------------
