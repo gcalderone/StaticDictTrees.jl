@@ -2,8 +2,7 @@ export DictTree, DictBranch, get_tree, hasdepth, add_tree!
 
 """
     DictTree()
-    DictTree(trees::Dict{Int, <:SDTree})
-    DictTree(tree::SDTree)
+    DictTree(tree::SDTree; label::Union{Nothing, Symbol}=nothing, initializer::Union{Nothing, Function}=nothing)
     DictTree(args...)
 
 A tree with dynamic depth to manage a collection of static depth `SDTree` objects. It automatically routes data assignments and lookups to the proper `SDTree` based on the length of the provided `Tuple` key.
@@ -12,10 +11,16 @@ Also, it accepts all the parameters typically used to build a dictionary, namely
 """
 struct DictTree <: AbstractDict{Tuple, Any}
     trees::Dict{Int, SDTree}
+    labels::Dict{Symbol, Int}
+    initializers::Dict{Int, Union{Nothing, Function}}
 
-    DictTree() = new(Dict{Int, SDTree}())
-    DictTree(trees::Dict{Int, <:SDTree}) = new(trees)
-    DictTree(tree::SDTree) = new(Dict{Int, SDTree}(depth(tree) => tree))
+    DictTree() = new(Dict{Int, SDTree}(), Dict{Symbol, Int}(), Dict{Int, Union{Nothing, Function}}())
+end
+
+function DictTree(tree::SDTree; kws...)
+    out = DictTree()
+    add_tree!(out, tree; kws...)
+    return out
 end
 
 DictTree(dict::AbstractDict) = _populate_dict!(DictTree(), dict)
@@ -26,28 +31,41 @@ DictTree(keys::AbstractVector, values::AbstractVector) = _populate_dict!(DictTre
 # Routing API
 # ------------------------------------------------------------------------------
 function Base.setindex!(dt::DictTree, value, key::Tuple)
-    target_depth = length(key)
-    if !haskey(dt.trees, target_depth)
-        dt.trees[target_depth] = SDTree{typeof(key), Any}()  # trees created here always have `Any` values
+    depth = length(key)
+    if !haskey(dt.trees, depth)
+        add_tree!(dt, SDTree{typeof(key), Any}())  # trees created here always have `Any` values
     end
-    target_tree = dt.trees[target_depth]
-    target_tree[key] = value
+
+    for d in 1:(depth - 1)
+        f = get(dt.initializers, d, nothing)
+        if !isnothing(f)
+            prefix = key[1:d]
+            t = get_tree(dt, d)
+            if !haskey(t, prefix)
+                arg = d == 1 ? prefix[1] : prefix
+                t[prefix] = f(arg)
+            end
+        end
+    end
+
+    t = get_tree(dt, depth)
+    t[key] = value
 end
 Base.setindex!(dt::DictTree, value, key) = setindex!(dt, value, (key,))
 
 function Base.getindex(dt::DictTree, key::Tuple)
-    target_depth = length(key)
-    if haskey(dt.trees, target_depth) && haskey(dt.trees[target_depth], key)
-        return dt.trees[target_depth][key]
+    depth = length(key)
+    if haskey(dt.trees, depth) && haskey(dt.trees[depth], key)
+        return dt.trees[depth][key]
     end
     throw(KeyError(key))
 end
 Base.getindex(dt::DictTree, key) = getindex(dt, (key,))
 
 function Base.haskey(dt::DictTree, key::Tuple)
-    target_depth = length(key)
-    if haskey(dt.trees, target_depth)
-        return haskey(dt.trees[target_depth], key)
+    depth = length(key)
+    if haskey(dt.trees, depth)
+        return haskey(dt.trees[depth], key)
     end
     return false
 end
@@ -152,13 +170,17 @@ Base.values(db::DictBranch) = Iterators.flatten(values(b) for b in _sorted_branc
 # ------------------------------------------------------------------------------
 """
     get_tree(dt::DictTree, depth::Int)
+    get_tree(dt::DictTree, label::Symbol)
     get_tree(db::DictBranch, depth::Int)
+    get_tree(db::DictBranch, label::Symbol)
 
-Retrieves the underlying `SDTree` (or `SDBranch` view) that exists at the requested `depth`.
+Retrieves the underlying `SDTree` (or `SDBranch` view) that exists at the requested `depth`, or that is identified by `label`.
 Throws a `KeyError` if no data has been initialized at that depth.
 """
 get_tree(dt::DictTree, depth::Int) = dt.trees[depth]
+get_tree(dt::DictTree, label::Symbol) = get_tree(dt, dt.labels[label])
 get_tree(db::DictBranch, depth::Int) = db.branches[depth]
+get_tree(db::DictBranch, label::Symbol) = db.branches[db.dt.labels[label]]
 
 """
     hasdepth(dt::DictTree, depth::Int)
@@ -167,6 +189,7 @@ get_tree(db::DictBranch, depth::Int) = db.branches[depth]
 Returns `true` if the shell currently manages a tree or branch at the explicitly requested `depth`.
 """
 hasdepth(dt::DictTree, depth::Int) = haskey(dt.trees, depth)
+hasdepth(dt::DictTree, label::Symbol) = haskey(dt.labels, label)  &&  haskey(dt.trees, dt.labels[label])
 hasdepth(db::DictBranch, depth::Int) = haskey(db.branches, depth)
 
 
@@ -174,32 +197,23 @@ hasdepth(db::DictBranch, depth::Int) = haskey(db.branches, depth)
 # Tree Injection / Initialization
 # ------------------------------------------------------------------------------
 """
-    add_tree!(dt::DictTree, tree::SDTree)
+    add_tree!(dt::DictTree, tree::SDTree{KT, VT}; label::Union{Nothing, Symbol}=nothing, initializer::Union{Nothing, Function}=nothing) where {KT, VT}
 
 Manually injects an existing `SDTree` into the `DictTree` shell.
+The `label` keyword can be used to provide a label to the specific tree depth, and can be used to retrieve the tree with `get_tree()`.
+The `initializer` can be used to provide an initializer function (mapping a `KT` into a `VT` value) for the tree to be invoked whenever a user sets a value at greater depths.
+
 Throws an `ArgumentError` if the shell already manages a tree at that specific depth.
 """
-function add_tree!(dt::DictTree, tree::SDTree)
+function add_tree!(dt::DictTree, tree::SDTree;
+                   label::Union{Nothing, Symbol}=nothing,
+                   initializer::Union{Nothing, Function}=nothing)
     d = depth(tree)
     if haskey(dt.trees, d)
         throw(ArgumentError("DictTree already contains a tree at depth $d."))
     end
     dt.trees[d] = tree
-    return dt
-end
-
-"""
-    add_tree!(dt::DictTree, ::Type{KT}, ::Type{VT}=Any)
-
-Pre-initializes an empty `SDTree` within the `DictTree` with a specific tuple key type (`KT`) and value type (`VT`).
-"""
-function add_tree!(dt::DictTree, ::Type{KT}, ::Type{VT}=Any) where {KT <: Tuple, VT}
-    d = fieldcount(KT)
-    if haskey(dt.trees, d)
-        throw(ArgumentError("DictTree already contains a tree at depth $d."))
-    end
-
-    new_tree = SDTree{KT, VT}()
-    dt.trees[d] = new_tree
+    isnothing(label)  ||  (dt.labels[label] = d)
+    isnothing(initializer)  ||  (dt.initializers[d] = initializer)
     return dt
 end

@@ -94,7 +94,7 @@ While slightly slower than their static-depth counterparts (`SDTree` and `SDBran
 pkg> add StaticDictTrees
 ```
 
-## Static Dict Tree creation
+## Static dict tree creation
 
 Create an empty tree by specifying the fixed `Tuple` type to be used as keys. Any tuple can be used for the purpose:
 
@@ -115,7 +115,7 @@ If you plan to insert a large number of entries, you can improve performance and
 sizehint!(dt, 1_000_000)
 ```
 
-## Zero-Allocation Views
+## Zero-allocation views
 
 A view on a `SDTree` is a lightweight, zero-allocation object holding a direct memory pointer to a specific subset of the parent tree's cache.
 ```julia
@@ -130,7 +130,7 @@ part_mass[:Fermion, :Lepton, :electron_neutrino]
 # NaN
 ```
 
-### Stale Views and Safe Fallbacks
+### Stale views and safe fallbacks
 
 `StaticDictTrees` views hold direct memory references to the parent tree.
 
@@ -275,7 +275,7 @@ dt[(:Engineering, :Software)] = "Backend Team"      # depth 2
 dt[(:Engineering, :Software, :Alice)] = 95000.0     # depth 3
 ```
 
-### Multi-Layer Views (`DictBranch`)
+### Multi-layer views (`DictBranch`)
 
 Just like `SDTree`, you can obtain a `view` of a `DictTree` to access elements using incomplete keys, and to reflect any modification directly into the parent tree.
 
@@ -292,19 +292,59 @@ println(eng[(:Software, :Alice)])
 # Output: 95000.0
 ```
 
-### Accessing internal trees
+### Accessing internal trees and labels
 
-As anticipated, the use of `DictTree` and `DictBranch` involves a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth tree you can use the `get_tree` method to retrieve the proper `SDTree` object natively, e.g.:
+As anticipated, the use of `DictTree` and `DictBranch` involve a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth tree you can use the `get_tree` method to retrieve the proper `SDTree` object natively, e.g.:
 ```julia
 dt[:Engineering]               # This requires a dynamic dispatch
 fast_tree = get_tree(dt, 1);   # Access the SDTree object with depth=1
 fast_tree[:Engineering]        # This is type-stable and O(1)
 ```
 
-To check if a specific depth tree is present in `DictTree` you may use the `hasdepth` function.
+You may even associate a label to a specific depth, and use it retrieve the corresponding `SDTree`:
+```julia
+dt = DictTree()
 
+# Pre-allocate depth 1 and label it :Department
+add_tree!(dt, SDTree{Tuple{Symbol}, String}(); label=:Department)
 
-### Cross-Layer Pruning
+# Retrieve the type-stable tree by its label
+dept_tree = get_tree(dt, :Department)
+dept_tree[(:Engineering,)] = "Main Tech Hub"
+
+# You can also check for existence using the label
+println(hasdepth(dt, :Department)) # true
+```
+
+### Auto-initialization of intermediate depths
+
+In case inserting a deep leaf node requires its parent categories to exist you can provide a suitable `initializer` function to `add_tree!`. This will be automatically invoked whenever you insert a value at depth `N` to populate the `N-1` trees with default values.
+
+```julia
+dt = DictTree()
+
+# Depth 1 Initializer
+add_tree!(dt, SDTree{Tuple{Symbol}, String}();
+          initializer = x -> "Default Dept: $x")
+
+# Depth 2 Initializer: receives the partial tuple (x is a 2-Tuple)
+add_tree!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
+          initializer = x -> "Default Team for $(x[1])")
+
+# We insert a leaf at depth 3...
+dt[(:Engineering, :Backend, :Alice)] = 95000.0
+
+# ...and the intermediate layers are automatically populated
+println(dt[(:Engineering,)])
+# Output: "Default Dept: Engineering"
+
+println(dt[(:Engineering, :Backend)])
+# Output: "Default Team for Engineering"
+```
+
+**Note:** Initializers do not overwrite existing values, they only trigger if the value at the specific depth *does not exist*
+
+### Cross-layer pruning
 
 Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match and recursively delete all associated elements across every deeper layer in the entire structure.
 
@@ -334,7 +374,7 @@ dt[(:Engineering,)] = "Main Tech Hub"
 
 
 
-## Check $O(1)$ scalability
+## Check $O(1)$ scalability for static dict trees
 
 True $O(1)$ complexity means that elapsed time during operations remains constant regardless of the dataset's size. In the real world, however, it is difficult to empirically verify such a statement due to a number of optimizations occurring at different levels (compiler, operating system, CPU cache, etc.).
 

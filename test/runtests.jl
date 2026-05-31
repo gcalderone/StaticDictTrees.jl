@@ -416,7 +416,7 @@ using StaticDictTrees
         dt = DictTree()
 
         # Manually lock Depth 1 to String
-        add_tree!(dt, Tuple{Int}, String)
+        add_tree!(dt, SDTree{Tuple{Int}, String}())
 
         dt[(1,)] = "Hello"
         @test dt[(1,)] == "Hello"
@@ -425,7 +425,7 @@ using StaticDictTrees
         @test_throws MethodError dt[(2,)] = 100.0
 
         # Prevent duplicate tree injections on the same depth
-        @test_throws ArgumentError add_tree!(dt, Tuple{Int}, Float64)
+        @test_throws ArgumentError add_tree!(dt, SDTree{Tuple{Int}, Float64}())
 
         # Retrieve direct pointer to the underlying tree layer
         t1 = get_tree(dt, 1)
@@ -435,7 +435,58 @@ using StaticDictTrees
         @test_throws KeyError get_tree(dt, 99)
     end
 
-    @testset "12. AbstractTrees Display Validation" begin
+    @testset "12. DictTree Labels & Auto-Initialization" begin
+        dt = DictTree()
+
+        # Setup trees with labels and initializers
+        # Depth 1: Department level
+        add_tree!(dt, SDTree{Tuple{Symbol}, String}();
+                  label=:Dept,
+                  initializer= x -> "Default Dept: $x") # x will be unwrapped from (:Eng,) to :Eng
+
+        # Depth 2: Team level
+        add_tree!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
+                  label=:Team,
+                  initializer= x -> "Default Team for $(x[1])") # x remains a tuple e.g. (:Eng, :Backend)
+
+        # Test Label Accessors (hasdepth & get_tree)
+        @test hasdepth(dt, :Dept)
+        @test hasdepth(dt, :Team)
+        @test !hasdepth(dt, :Unknown)
+
+        t_dept = get_tree(dt, :Dept)
+        @test t_dept isa SDTree{Tuple{Symbol}, String}
+
+        # Test Auto-Initialization (Triggered by Depth 3 insertion)
+        dt[(:Eng, :Backend, :Alice)] = 95000.0
+
+        # Check that Depth 1 was auto-populated (and 1-tuple correctly unwrapped)
+        @test haskey(dt, (:Eng,))
+        @test dt[(:Eng,)] == "Default Dept: Eng"
+
+        # Check that Depth 2 was auto-populated
+        @test haskey(dt, (:Eng, :Backend))
+        @test dt[(:Eng, :Backend)] == "Default Team for Eng"
+
+        # Test Label Accessors via DictBranch
+        db = view(dt, (:Eng,))
+        @test get_tree(db, :Team) isa AbstractSDTree # Should point to the Depth 2 branch
+
+        # Test Overwrite Protection
+        # Manually insert a depth 1 value first
+        dt[(:Sales,)] = "Main Sales Hub"
+
+        # Insert a depth 3 value to trigger initializers again
+        dt[(:Sales, :Frontend, :Bob)] = 85000.0
+
+        # The Depth 2 initializer should fire normally
+        @test dt[(:Sales, :Frontend)] == "Default Team for Sales"
+
+        # BUT the Depth 1 initializer MUST NOT overwrite our manual assignment
+        @test dt[(:Sales,)] == "Main Sales Hub"
+    end
+
+    @testset "13. AbstractTrees Display Validation" begin
         dt = DictTree()
         dt[(:A,)] = "A-Meta"
         dt[(:A, :B)] = "B-Meta"
