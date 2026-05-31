@@ -366,7 +366,7 @@ By default, dynamically created trees use `Any` as their value type to allow for
 ```julia
 # Allocate depth 1 tree to only accept Integer keys and String values
 dt = DictTree()
-add_tree!(dt, Tuple{Symbol}, String)
+add_tree!(dt, SDTree{Tuple{Symbol}, String}())
 
 dt[(:Engineering,)] = "Main Tech Hub"
 # dt[(:Logistics,)] = 100.0 # This would now throw a MethodError!
