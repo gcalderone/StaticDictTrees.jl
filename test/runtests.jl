@@ -486,7 +486,84 @@ using StaticDictTrees
         @test dt[(:Sales,)] == "Main Sales Hub"
     end
 
-    @testset "13. AbstractTrees Display Validation" begin
+    @testset "13. DictTree Shell Hooks: Initializers, Validators, Autoclean" begin
+        # 1. Validators
+        dt_val = DictTree()
+
+        # Add a depth 1 tree that only accepts positive Float64 values
+        add_tree!(dt_val, SDTree{Tuple{Symbol}, Float64}();
+                  label=:Dept,
+                  validator = (t, k, v) -> v > 0.0)
+
+        dt_val[(:Sales,)] = 100.0 # Valid
+        @test dt_val[(:Sales,)] == 100.0
+
+        # Invalid insertion should throw ArgumentError and NOT insert
+        @test_throws ArgumentError dt_val[(:Eng,)] = -50.0
+        @test !haskey(dt_val, (:Eng,))
+
+        # 2. Initializers & Overwrite Protection
+        dt = DictTree()
+
+        # Depth 1: Department level (testing 1-tuple unwrapping)
+        add_tree!(dt, SDTree{Tuple{Symbol}, String}();
+                  label=:Dept,
+                  initializer = x -> "Auto-Dept: $x",
+                  autoclean = true)
+
+        # Depth 2: Team level (testing raw tuple handling)
+        add_tree!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
+                  label=:Team,
+                  initializer = x -> "Auto-Team: $(x[1])-$(x[2])",
+                  autoclean = true)
+
+        # Insert at depth 3 to trigger initializers downward
+        dt[(:Eng, :Backend, :Alice)] = 95.0
+
+        # Check auto-population
+        @test haskey(dt, (:Eng,))
+        @test dt[(:Eng,)] == "Auto-Dept: Eng"
+        @test haskey(dt, (:Eng, :Backend))
+        @test dt[(:Eng, :Backend)] == "Auto-Team: Eng-Backend"
+
+        # Overwrite protection: Manual assignment shouldn't be overwritten
+        dt[(:Sales,)] = "Main Sales Hub"
+        dt[(:Sales, :Frontend, :Bob)] = 85.0
+
+        @test dt[(:Sales,)] == "Main Sales Hub" # Preserved!
+        @test dt[(:Sales, :Frontend)] == "Auto-Team: Sales-Frontend" # Auto-initialized
+
+        # 3. Autoclean (Upward Garbage Collection)
+        # Let's add a second employee to Eng -> Backend
+        dt[(:Eng, :Backend, :Charlie)] = 80.0
+
+        # SCENARIO A: Delete Alice.
+        # Eng -> Backend still has Charlie, so NO cleanup should happen.
+        delete!(dt, (:Eng, :Backend, :Alice))
+        @test haskey(dt, (:Eng, :Backend))
+        @test haskey(dt, (:Eng,))
+
+        # SCENARIO B: Delete Charlie.
+        # Now Eng -> Backend is empty. It should autoclean!
+        # Because Eng -> Backend is gone, Eng is ALSO empty. It should cascade!
+        delete!(dt, (:Eng, :Backend, :Charlie))
+        @test !haskey(dt, (:Eng, :Backend))
+        @test !haskey(dt, (:Eng,))
+
+        # SCENARIO C: Autoclean via prune!
+        # We currently still have: (:Sales,) -> (:Sales, :Frontend) -> (:Sales, :Frontend, :Bob)
+        # Let's prune the Sales Frontend team directly.
+        prune!(dt, (:Sales, :Frontend))
+
+        @test !haskey(dt, (:Sales, :Frontend, :Bob)) # Leaf pruned
+        @test !haskey(dt, (:Sales, :Frontend))       # Team pruned
+        @test !haskey(dt, (:Sales,))                 # Dept auto-cleaned!
+
+        # The entire tree should now be perfectly empty
+        @test length(dt) == 0
+    end
+
+    @testset "14. AbstractTrees Display Validation" begin
         dt = DictTree()
         dt[(:A,)] = "A-Meta"
         dt[(:A, :B)] = "B-Meta"

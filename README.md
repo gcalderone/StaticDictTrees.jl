@@ -2,7 +2,7 @@
 
 ---
 
-StaticDictTrees.jl provides a data structure that maps fixed-length `Tuple` keys to values, just like a standard `Dict` would.  Also, it treats the tuple as a hierarchical path where each element represents a specific step along a branch, thus allowing to represent tree-like data structures as well as to isolate specific branches when the provided `Tuple` key is incomplete.  Finally, it allows you to access the elements as a single, contiguous vector with no need for nested loops.
+**StaticDictTrees.jl** provides a data structure that maps fixed-length `Tuple` keys to values, just like a standard `Dict` would. Also, it treats the tuple as a hierarchical path where each element represents a specific step along a branch, thus allowing you to represent tree-like data structures, as well as to isolate specific branches when the provided `Tuple` key is incomplete. Finally, it allows you to access the elements as a single, contiguous vector with no need for nested loops.
 
 > [!WARNING]
 > Breaking Changes in v0.2.0
@@ -34,6 +34,7 @@ part_mass = SDTree((:Fermion, :Quark, :up)                 => 2.2,
 
 # Access using the entire key
 println(part_mass[:Fermion, :Lepton, :electron])
+# 0.510998
 
 # ... or create a view based on an incomplete key (branch)
 leptons = view(part_mass, (:Fermion, :Lepton))
@@ -151,7 +152,7 @@ println(length(v))
 # 0
 
 # Restore the deleted entry
-part_mass[:Boson, :Scalar, :Higgs] = 4.
+part_mass[:Boson, :Scalar, :Higgs] = 4.0
 
 # The view is still stale
 println(is_stale(v))
@@ -257,7 +258,7 @@ prune!(view(part_mass, (:Fermion,)), (:Quark,))
 
 ## Variable depth trees with `DictTree` and `DictBranch`
 
-While `SDTree` guarantees maximum performance by enforcing a fixed depth, real-world data may be heterogeneous. E.g., you might want to store high-level metadata at depth 1, sub-category details at depth 2, and raw data at depth 3.
+While `SDTree` guarantees maximum performance by enforcing a fixed depth, real-world data may be heterogeneous. E.g., you might want to store high-level data at depth 1, sub-category details at depth 2, and raw data at depth 3.
 
 Version 0.2.0 of this package introduces the `DictTree` structure which acts as a collection of `SDTree` objects, each with its own fixed depth, and automatically routes method calls to the appropriate tree depending on the length of the `Tuple` key:
 
@@ -283,7 +284,7 @@ Just like `SDTree`, you can obtain a `view` of a `DictTree` to access elements u
 # Take a view on the Engineering department
 eng = view(dt, (:Engineering,))
 
-# Access the exact match (the branch's own metadata) via the empty tuple
+# Access the exact match (the branch's own data) via the empty tuple
 println(eng[()])
 # Output: "Main Tech Hub"
 
@@ -318,7 +319,7 @@ println(hasdepth(dt, :Department)) # true
 
 ### Auto-initialization of intermediate depths
 
-In case inserting a deep leaf node requires its parent categories to exist you can provide a suitable `initializer` function to `add_tree!`. This will be automatically invoked whenever you insert a value at depth `N` to populate the `N-1` trees with default values.
+In case inserting a deep leaf node requires its parent categories to exist, you can provide an `initializer` function to `add_tree!`. This will be automatically invoked whenever you insert a value at a deeper level to populate the missing intermediate parent trees with default values.
 
 ```julia
 dt = DictTree()
@@ -342,11 +343,57 @@ println(dt[(:Engineering, :Backend)])
 # Output: "Default Team for Engineering"
 ```
 
-**Note:** Initializers do not overwrite existing values, they only trigger if the value at the specific depth *does not exist*
+**Note:** Initializers do not overwrite existing values. They only trigger if the value at the specific depth *does not already exist*.
+
+
+### Data validation
+
+You can provide a `validator` function when adding a tree layer to enforce custom business rules before values are inserted. The function receives the underlying `tree`, the `key`, and the `value` being inserted. If it returns `false`, the `DictTree` will immediately throw an `ArgumentError` and safely reject the insertion.
+
+```julia
+dt = DictTree()
+
+# Example: Ensure budgets are strictly positive and capped at 1,000,000
+add_tree!(dt, SDTree{Tuple{Symbol}, Float64}();
+          validator = (tree, key, val) -> 0.0 < val <= 1_000_000.0)
+
+dt[(:Marketing,)] = 50000.0   # Succeeds
+
+# dt[(:Engineering,)] = -50.0 # Throws ArgumentError!
+```
+
+
+### Auto-cleaning (Upward garbage collection)
+
+When working with hierarchical data, deleting all leaves of a branch can leave orphaned parent metadata behind. By setting `autoclean = true` when adding a tree layer, `DictTree` will automatically perform "upward garbage collection".
+
+Whenever you `delete!` or `prune!` an element, the shell checks if its parent metadata is now the *only* item remaining in the branch. If it is, the parent is automatically deleted as well!
+
+```julia
+dt = DictTree()
+
+add_tree!(dt, SDTree{Tuple{Symbol}, String}();
+          label=:Dept,
+          initializer = x -> "Auto-Dept: $x",
+          autoclean = true) # Enable auto-cleanup!
+
+# Insert a deep leaf (initializers fire downward!)
+dt[(:Eng, :Backend, :Alice)] = 95000.0
+
+# Verify there is an entry key at depth 1
+println(haskey(dt, (:Eng,))) # true
+
+# Now delete the leaf...
+delete!(dt, (:Eng, :Backend, :Alice))
+
+# ...and the upward cascade automatically deletes the (:Eng,) entry
+println(haskey(dt, (:Eng,))) # false
+```
+
 
 ### Cross-layer pruning
 
-Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match and recursively delete all associated elements across every deeper layer in the entire structure.
+Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match and recursively delete all associated elements across every deeper layer in the entire structure. If `autoclean = true` is configured for parent layers, pruning deep branches will also trigger upward cleanup of orphaned entries.
 
 ```julia
 # This will delete the data at (:Engineering, :Software)
@@ -355,7 +402,7 @@ prune!(dt, (:Engineering, :Software))
 
 println(haskey(dt, (:Engineering, :Software)))         # false
 println(haskey(dt, (:Engineering, :Software, :Alice))) # false
-println(haskey(dt, (:Engineering,)))                   # true (Parent is untouched)
+println(haskey(dt, (:Engineering,)))                   # true (Parent is untouched, unless autoclean triggered)
 ```
 
 
@@ -364,7 +411,7 @@ println(haskey(dt, (:Engineering,)))                   # true (Parent is untouch
 By default, dynamically created trees use `Any` as their value type to allow for flexible, heterogeneous routing. If you want strict type safety and performance for a specific depth layer, you can manually specify the value type by using `add_tree!`:
 
 ```julia
-# Allocate depth 1 tree to only accept Integer keys and String values
+# Allocate depth 1 tree to only accept Symbol keys and String values
 dt = DictTree()
 add_tree!(dt, SDTree{Tuple{Symbol}, String}())
 

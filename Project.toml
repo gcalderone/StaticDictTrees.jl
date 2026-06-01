@@ -1,6 +1,6 @@
 name = "StaticDictTrees"
 uuid = "1b20ab03-d99d-403f-8d72-12834f328db8"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Giorgio Calderone <giorgio.calderone@gmail.com>"]
 
 [deps]

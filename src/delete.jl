@@ -90,10 +90,21 @@ function Base.delete!(dt::DictTree, key::Tuple)
     if haskey(dt.trees, target_depth)
         delete!(dt.trees[target_depth], key)
     end
+
+    for d in (target_depth - 1):-1:1
+        if get(dt.autocleans, d, false)
+            t = get_tree(dt, d)
+            prefix = key[1:d]
+            if haskey(t, prefix)
+                if length(view(dt, prefix)) == 1
+                    delete!(t, prefix)
+                end
+            end
+        end
+    end
     return dt
 end
 Base.delete!(dt::DictTree, key) = delete!(dt, (key,))
-
 
 function Base.delete!(db::DictBranch, key::Tuple)
     full_key = (db.prefix..., key...)

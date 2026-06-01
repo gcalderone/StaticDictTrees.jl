@@ -58,16 +58,22 @@ prune!(v::SDBranch{KT, PT, ST}, path) where {KT <: Tuple, PT <: Tuple, ST <: Tup
 
 
 function prune!(dt::DictTree, prefix::Tuple)
-    M = length(prefix)
+    target_depth = length(prefix)
+
     for (d, t) in dt.trees
-        if d == M
-            delete!(t, prefix)  # just delete the leaf
-        elseif d > M
-            if haskey(t.branch_lookup[M], prefix)
-                suffixes = collect(keys(t.branch_lookup[M][prefix]))
-                for suff in suffixes
-                    full_key = (prefix..., suff...)
-                    delete!(t, full_key)
+        if d >= target_depth
+            prune!(t, prefix)
+        end
+    end
+
+    # Upward cascade: automatically clean up orphaned parent metadata
+    for d in (target_depth - 1):-1:1
+        if get(dt.autocleans, d, false)
+            t = get_tree(dt, d)
+            pref = prefix[1:d]
+            if haskey(t, pref)
+                if length(view(dt, pref)) == 1
+                    delete!(t, pref)
                 end
             end
         end
@@ -76,9 +82,9 @@ function prune!(dt::DictTree, prefix::Tuple)
 end
 prune!(dt::DictTree, prefix) = prune!(dt, (prefix,))
 
-function prune!(db::DictBranch, path::Tuple)
-    full_key = (db.prefix..., path...)
+function prune!(db::DictBranch, prefix::Tuple)
+    full_key = (db.prefix..., prefix...)
     prune!(db.dt, full_key)
     return db
 end
-prune!(db::DictBranch, path) = prune!(db, (path,))
+prune!(db::DictBranch, prefix) = prune!(db, (prefix,))

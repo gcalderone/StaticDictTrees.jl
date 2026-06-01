@@ -13,8 +13,13 @@ struct DictTree <: AbstractDict{Tuple, Any}
     trees::Dict{Int, SDTree}
     labels::Dict{Symbol, Int}
     initializers::Dict{Int, Union{Nothing, Function}}
+    validators::Dict{Int, Union{Nothing, Function}}
+    autocleans::Dict{Int, Bool}
 
-    DictTree() = new(Dict{Int, SDTree}(), Dict{Symbol, Int}(), Dict{Int, Union{Nothing, Function}}())
+    DictTree() = new(Dict{Int, SDTree}(), Dict{Symbol, Int}(),
+                     Dict{Int, Union{Nothing, Function}}(),
+                     Dict{Int, Union{Nothing, Function}}(),
+                     Dict{Int, Bool}())
 end
 
 function DictTree(tree::SDTree; kws...)
@@ -30,6 +35,15 @@ DictTree(keys::AbstractVector, values::AbstractVector) = _populate_dict!(DictTre
 # ------------------------------------------------------------------------------
 # Routing API
 # ------------------------------------------------------------------------------
+validate_and_set!(t::SDTree, value, key, f::Nothing) = t[key] = value
+function validate_and_set!(t::SDTree, value, key, f::Function)
+    if f(t, key, value)
+        t[key] = value
+    else
+        throw(ArgumentError("Validation failed for key $key and value $value"))
+    end
+end
+
 function Base.setindex!(dt::DictTree, value, key::Tuple)
     depth = length(key)
     if !haskey(dt.trees, depth)
@@ -39,17 +53,17 @@ function Base.setindex!(dt::DictTree, value, key::Tuple)
     for d in 1:(depth - 1)
         f = get(dt.initializers, d, nothing)
         if !isnothing(f)
-            prefix = key[1:d]
             t = get_tree(dt, d)
+            prefix = key[1:d]
             if !haskey(t, prefix)
-                arg = d == 1 ? prefix[1] : prefix
-                t[prefix] = f(arg)
+                arg = d == 1  ?  prefix[1]  :  prefix
+                validate_and_set!(t, f(arg), prefix, get(dt.validators, d, nothing))
             end
         end
     end
 
-    t = get_tree(dt, depth)
-    t[key] = value
+    validate_and_set!(get_tree(dt, depth), value, key, get(dt.validators, depth, nothing))
+    return value
 end
 Base.setindex!(dt::DictTree, value, key) = setindex!(dt, value, (key,))
 
@@ -197,17 +211,27 @@ hasdepth(db::DictBranch, depth::Int) = haskey(db.branches, depth)
 # Tree Injection / Initialization
 # ------------------------------------------------------------------------------
 """
-    add_tree!(dt::DictTree, tree::SDTree{KT, VT}; label::Union{Nothing, Symbol}=nothing, initializer::Union{Nothing, Function}=nothing) where {KT, VT}
+    add_tree!(dt::DictTree, tree::SDTree;
+              label::Union{Nothing, Symbol}=nothing,
+              initializer::Union{Nothing, Function}=nothing,
+              validator::Union{Nothing, Function}=nothing,
+              autoclean::Bool=false)
 
 Manually injects an existing `SDTree` into the `DictTree` shell.
-The `label` keyword can be used to provide a label to the specific tree depth, and can be used to retrieve the tree with `get_tree()`.
-The `initializer` can be used to provide an initializer function (mapping a `KT` into a `VT` value) for the tree to be invoked whenever a user sets a value at greater depths.
+
+**Keyword Arguments:**
+* `label`: Assigns a semantic label to the specific tree depth, allowing you to retrieve the tree later using `get_tree(dt, label)`.
+* `initializer`: A function mapping a partial tuple key (`KT`) to a value (`VT`). It is automatically invoked to populate this layer whenever a user sets a value at a deeper level and the intermediate branch doesn't exist.
+* `validator`: A function `f(tree::SDTree, key, value) -> Bool` used to validate a value before it is inserted into the tree. If it returns `false`, an `ArgumentError` is thrown.
+* `autoclean`: If set to `true`, deleting or pruning all the deeper children of a node will automatically trigger the deletion of this layer's corresponding entries, keeping the tree free of orphaned branches.
 
 Throws an `ArgumentError` if the shell already manages a tree at that specific depth.
 """
 function add_tree!(dt::DictTree, tree::SDTree;
                    label::Union{Nothing, Symbol}=nothing,
-                   initializer::Union{Nothing, Function}=nothing)
+                   initializer::Union{Nothing, Function}=nothing,
+                   validator::Union{Nothing, Function}=nothing,
+                   autoclean::Bool=false)
     d = depth(tree)
     if haskey(dt.trees, d)
         throw(ArgumentError("DictTree already contains a tree at depth $d."))
@@ -215,5 +239,7 @@ function add_tree!(dt::DictTree, tree::SDTree;
     dt.trees[d] = tree
     isnothing(label)  ||  (dt.labels[label] = d)
     isnothing(initializer)  ||  (dt.initializers[d] = initializer)
+    isnothing(validator)    ||  (dt.validators[d] = validator)
+    autoclean               &&  (dt.autocleans[d] = true)
     return dt
 end
