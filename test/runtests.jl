@@ -612,4 +612,206 @@ using StaticDictTrees
         @test hasdepth(db_lbl, :Team)
         @test !hasdepth(db_lbl, :FakeLabel)
     end
+
+    @testset "16. DictTree Exceptions & Missing Coverage" begin
+        # Hit the KeyError branch in getindex (DictTrees.jl Line 75)
+        dt = DictTree()
+        dt[(1, 2)] = "A"
+        @test_throws KeyError dt[(1, 3)]       # Depth exists, key doesn't
+        @test_throws KeyError dt[(1,)]         # Different depth
+        @test_throws KeyError dt[(1, 2, 3)]    # Depth doesn't exist at all
+    end
+
+    @testset "17. Show Methods & AbstractTrees Edge Cases" begin
+        # 1. SDTree, SDBranch, SDLeaf Show Methods
+        t = SDTree((1, 2) => "A")
+        b = view(t, (1,))
+        l = view(t, (1, 2))
+
+        @test occursin("SDTree", sprint(show, t))
+        @test occursin("SDTree", sprint(show, MIME("text/plain"), t))
+
+        @test occursin("SDBranch", sprint(show, b))
+        @test occursin("SDBranch", sprint(show, MIME("text/plain"), b))
+
+        @test occursin("SDLeaf", sprint(show, l))
+        @test occursin("SDLeaf", sprint(show, MIME("text/plain"), l))
+
+        # Stale views text/plain fallback
+        empty!(t)
+        @test sprint(show, MIME("text/plain"), b) == "Object is stale"
+        @test sprint(show, MIME("text/plain"), l) == "Object is stale"
+
+        # 2. DictTree Root Metadata Printnode (abstracttrees.jl Line 92)
+        dt = DictTree()
+        dt[()] = "RootVal"
+        dt[(1,)] = "A"
+
+        @test occursin("DictTree", sprint(show, dt))
+        out_dt = sprint(show, MIME("text/plain"), dt)
+        @test occursin("() => \"RootVal\"", out_dt)
+
+        # 3. DictBranch Missing Metadata Printnode (abstracttrees.jl Lines 102 & 110)
+        dt2 = DictTree()
+        dt2[(1, 2)] = "B"
+        db2 = view(dt2, (1,)) # The prefix (1,) exists structurally, but has no metadata!
+
+        @test occursin("DictBranch", sprint(show, db2))
+        out_db2 = sprint(show, MIME("text/plain"), db2)
+
+        @test occursin("1", out_db2)       # Hits Line 102
+        @test occursin("(branch)", out_db2) # Hits Line 110
+    end
+
+    @testset "18. AbstractTrees Deep Topologies" begin
+        # 1. Hit leaf-level SDTree children (abstracttrees.jl Line 17)
+        t_flat = SDTree((1,) => "A")
+        out_flat = sprint(show, MIME("text/plain"), t_flat)
+        @test occursin("1 => \"A\"", out_flat)
+
+        # 2. Hit non-leaf-level SDBranch children (abstracttrees.jl Lines 28-30)
+        t_deep = SDTree((1, 2, 3) => "DeepValue")
+        b_deep = view(t_deep, (1,)) # Branch is at depth 1, leaves are at depth 3
+        out_b_deep = sprint(show, MIME("text/plain"), b_deep)
+        @test occursin("2", out_b_deep)
+        @test occursin("3 => \"DeepValue\"", out_b_deep)
+
+        # 3. Hit DictBranch child without metadata (abstracttrees.jl Line 102)
+        dt_struct = DictTree()
+        dt_struct[(1, 2, 3)] = "C"
+        # Prefix (1,) exists, but its child (1, 2) is purely structural with no metadata
+        db_struct = view(dt_struct, (1,))
+        out_db_struct = sprint(show, MIME("text/plain"), db_struct)
+        @test occursin("2\n", out_db_struct) # Tests that '2' prints without a value attached
+        @test occursin("3 => \"C\"", out_db_struct)
+    end
+
+    @testset "19. LocalCoverage Absolute Completion Patch" begin
+        # ==========================================
+        # 1. DictTree Extra Constructors & Iteration
+        # ==========================================
+        t_core = SDTree((1, 2) => "A")
+        dt_kw = DictTree(t_core; label=:MyLayer)
+        @test get_tree(dt_kw, :MyLayer) === t_core
+
+        d_standard = Dict((1,) => "X", (2, 3) => "Y")
+        dt_dict = DictTree(d_standard)
+        @test dt_dict[(2, 3)] == "Y"
+
+        dt_vecs = DictTree([(1,)], ["VectorVal"])
+        @test dt_vecs[(1,)] == "VectorVal"
+
+        # Check flatten iterators for values and sequential pairs
+        dt_iter = DictTree((:A,) => 1, (:A, :B) => 2)
+        @test sort(collect(values(dt_iter))) == [1, 2]
+        @test length(collect(dt_iter)) == 2
+
+        db_iter = view(dt_iter, (:A,))
+        @test sort(collect(values(db_iter))) == [1, 2]
+        @test sort(collect(keys(db_iter))) == [(), (:B,)]
+        @test length(collect(db_iter)) == 2
+
+        # ==========================================
+        # 2. Scalar Forwarding & Mutation via Shell Views
+        # ==========================================
+        dt_scalar = DictTree()
+        dt_scalar[:RootScalar] = "Value1"  # Triggers fallback to (:RootScalar,)
+        @test dt_scalar[:RootScalar] == "Value1"
+        @test haskey(dt_scalar, :RootScalar)
+
+        db_scalar = view(dt_scalar, (:RootScalar,))
+        db_scalar[:SubLeaf] = "Value2"      # Mutating DictBranch via scalar
+        @test dt_scalar[(:RootScalar, :SubLeaf)] == "Value2"
+        @test haskey(db_scalar, :SubLeaf)
+        @test db_scalar[:SubLeaf] == "Value2"
+
+        # Layer accessors from branch views
+        add_tree!(dt_scalar, SDTree{Tuple{Symbol, Symbol, Symbol}, Int}())
+        @test get_tree(dt_scalar, 3) isa AbstractSDTree
+
+        # Deletion & Pruning scalar wrappers
+        delete!(dt_scalar, :RootScalar)
+        @test !haskey(dt_scalar, :RootScalar)
+
+        dt_prune_sc = DictTree((:A, :B) => 1)
+        prune!(dt_prune_sc, :A)
+        @test length(dt_prune_sc) == 0
+
+        db_prune_sc = view(DictTree((:A, :B, :C) => 1), (:A,))
+        prune!(db_prune_sc, :B)
+        @test length(db_prune_sc) == 0
+
+        # ==========================================
+        # 3. StaticDictTrees Type Boundaries & Views
+        # ==========================================
+        sdt = SDTree{Tuple{Symbol, Int}, String}()
+        sdt[:A, 1] = "Found"
+
+        # Type mismatches should trigger safe ArgumentErrors
+        @test_throws ArgumentError sdt[:A, "WrongType"] = "Fail"
+        @test_throws ArgumentError sdt[:A, "WrongType"]
+        @test_throws ArgumentError delete!(sdt, (:A, "WrongType"))
+        @test !haskey(sdt, (:A, "WrongType"))
+
+        # Scalar forwarding on SDTree
+        sdt_flat = SDTree{Tuple{Symbol}, Int}()
+        sdt_flat[:ScalarKey] = 42
+        @test sdt_flat[:ScalarKey] == 42
+        @test haskey(sdt_flat, :ScalarKey)
+        @test sdt_flat[:ScalarKey] == 42
+        delete!(sdt_flat, :ScalarKey)
+        prune!(sdt_flat, :ScalarKey)
+
+        # SDBranch View mutations and nested constructors
+        sdt_deep = SDTree((:A, :B, :C) => 100)
+        br_deep = view(sdt_deep, (:A,))
+
+        @test_throws ArgumentError br_deep[:B, "WrongType"] = 200
+        @test_throws ArgumentError br_deep[:B, "WrongType"]
+        @test_throws ArgumentError delete!(br_deep, (:B, "WrongType"))
+        @test !haskey(br_deep, (:B, "WrongType"))
+
+        br_nested = SDBranch(br_deep, (:B,)) # Hit constructor signature
+        @test br_nested[(:C,)] == 100
+        br_nested[:C] = 150
+        @test sdt_deep[(:A, :B, :C)] == 150
+        delete!(br_nested, :C)
+        prune!(br_nested, :C)
+
+        # SDLeaf constructor with offset suffix
+        sdt_lf = SDTree((:A, :B) => 1)
+        br_lf = view(sdt_lf, (:A,))
+        lf_obj = SDLeaf(br_lf, (:B,))
+        @test lf_obj[()] == 1
+        delete!(lf_obj, ())
+
+        # Edge cases for properties
+        @test is_leaf_level(lf_obj)
+        @test !is_stale(sdt_deep)
+
+        # ==========================================
+        # 4. values_view Operations on Views
+        # ==========================================
+        t_vv = SDTree((1, 2) => "X", (1, 3) => "Y")
+        br_vv = view(t_vv, (1,))
+        lf_vv = view(t_vv, (1, 2))
+
+        # Re-trigger internal viewid rebuild code blocks
+        empty!(t_vv.viewid)
+        @test values_view(br_vv) == ["X", "Y"]
+        @test values_view(lf_vv) == ["X"]
+
+        # Validate stale view arrays safely drop down to empty elements
+        empty!(t_vv)
+        @test isempty(values_view(br_vv))
+        @test isempty(values_view(lf_vv))
+
+        # ==========================================
+        # 5. AbstractTrees Branch-as-Root Leaf Display
+        # ==========================================
+        t_dis = SDTree((1, 2) => "Display")
+        lf_dis = view(t_dis, (1, 2))
+        out_dis = sprint(print_tree, StaticDictTrees.BranchAsRoot(lf_dis))
+        @test occursin("2 => \"Display\"", out_dis)
+    end
 end
