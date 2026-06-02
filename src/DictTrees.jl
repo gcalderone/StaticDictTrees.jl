@@ -92,13 +92,25 @@ function Base.empty!(dt::DictTree)
     return dt
 end
 
+# DictTree helpers
+
+_sorted_trees(dt::DictTree, min_depth=0) = (dt.trees[d] for d in sort(collect(keys(dt.trees))) if d >= min_depth)
+
+function _safely_get_view(t::SDTree, prefix::Tuple)
+    try
+        return view(t, prefix)
+    catch KeyError
+        return nothing
+    end
+end
+
+_sorted_branches(dt::DictTree, prefix) = (v for v in (_safely_get_view(t, prefix) for t in _sorted_trees(dt, length(prefix))) if !isnothing(v))
+
+
 # ------------------------------------------------------------------------------
 # DictTree AbstractDict Implementations
 # ------------------------------------------------------------------------------
 Base.length(dt::DictTree) = sum(length(t) for t in values(dt.trees); init=0)
-
-# Helper to ensure we iterate through the layers in a predictable top-to-bottom order
-_sorted_trees(dt::DictTree) = (dt.trees[d] for d in sort(collect(keys(dt.trees))))
 
 Base.iterate(dt::DictTree) = iterate(Iterators.flatten(_sorted_trees(dt)))
 Base.iterate(dt::DictTree, state) = iterate(Iterators.flatten(_sorted_trees(dt)), state)
@@ -117,34 +129,18 @@ A view representing a subset of a `DictTree`. It behaves as a standard dictionar
 struct DictBranch <: AbstractDict{Tuple, Any}
     dt::DictTree
     prefix::Tuple
-    branches::Dict{Int, AbstractSDTree}
 end
 
+_sorted_branches(db::DictBranch) = _sorted_branches(db.dt, db.prefix)
+
 function Base.empty!(db::DictBranch)
-    for b in values(db.branches)
+    for b in _sorted_branches(db)
         empty!(b)
     end
     return db
 end
 
-function Base.view(dt::DictTree, prefix::Tuple)
-    matching_branches = Dict{Int, AbstractSDTree}()
-
-    for (depth, t) in dt.trees
-        if depth >= length(prefix)
-            try
-                matching_branches[depth] = view(t, prefix)
-            catch KeyError
-            end
-        end
-    end
-
-    if isempty(matching_branches)
-        throw(KeyError(prefix))
-    end
-
-    return DictBranch(dt, prefix, matching_branches)
-end
+Base.view(dt::DictTree, prefix::Tuple) = DictBranch(dt, prefix)
 Base.view(dt::DictTree, key) = view(dt, (key,))
 
 function Base.getindex(db::DictBranch, key::Tuple)
@@ -169,9 +165,8 @@ Base.haskey(db::DictBranch, key) = haskey(db, (key,))
 # ------------------------------------------------------------------------------
 # DictBranch AbstractDict Implementations
 # ------------------------------------------------------------------------------
-Base.length(db::DictBranch) = sum(length(b) for b in values(db.branches); init=0)
 
-_sorted_branches(db::DictBranch) = (db.branches[d] for d in sort(collect(keys(db.branches))))
+Base.length(db::DictBranch) = sum(length(b) for b in _sorted_branches(db); init=0)
 
 Base.iterate(db::DictBranch) = iterate(Iterators.flatten(_sorted_branches(db)))
 Base.iterate(db::DictBranch, state) = iterate(Iterators.flatten(_sorted_branches(db)), state)
@@ -193,8 +188,9 @@ Throws a `KeyError` if no data has been initialized at that depth.
 """
 get_tree(dt::DictTree, depth::Int) = dt.trees[depth]
 get_tree(dt::DictTree, label::Symbol) = get_tree(dt, dt.labels[label])
-get_tree(db::DictBranch, depth::Int) = db.branches[depth]
-get_tree(db::DictBranch, label::Symbol) = db.branches[db.dt.labels[label]]
+
+get_tree(db::DictBranch, depth::Int) = view(get_tree(db.dt, depth), db.prefix)
+get_tree(db::DictBranch, label::Symbol) = view(get_tree(db.dt, label), db.prefix)
 
 """
     hasdepth(dt::DictTree, depth::Int)
@@ -204,8 +200,7 @@ Returns `true` if the shell currently manages a tree or branch at the explicitly
 """
 hasdepth(dt::DictTree, depth::Int) = haskey(dt.trees, depth)
 hasdepth(dt::DictTree, label::Symbol) = haskey(dt.labels, label)  &&  haskey(dt.trees, dt.labels[label])
-hasdepth(db::DictBranch, depth::Int) = haskey(db.branches, depth)
-
+hasdepth(db::DictBranch, depth::Int) = haskey(db.dt.trees, depth) && !isnothing(_safely_get_view(db.dt.trees[depth], db.prefix))
 
 # ------------------------------------------------------------------------------
 # Tree Injection / Initialization

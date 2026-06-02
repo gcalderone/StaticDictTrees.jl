@@ -46,24 +46,29 @@ end
 
 function children(db::DictBranch)
     M = length(db.prefix)
-    prefs = Set{Any}()
+    prefs = Set{Tuple}()
 
-    for (d, b) in db.branches
+    for (d, t) in db.dt.trees
         if d > M
-            if d == M + 1
-                for suff in keys(b.lookup)
-                    push!(prefs, (db.prefix..., suff...))
-                end
-            else
-                next_dict = b.root.branch_lookup[M+1]
-                for p in keys(next_dict)
-                    if p[1:M] == db.prefix
-                        push!(prefs, p)
+            b = _safely_get_view(t, db.prefix)
+
+            if !isnothing(b)
+                if d == M + 1
+                    for suff in keys(b.lookup)
+                        push!(prefs, (db.prefix..., suff...))
+                    end
+                else
+                    next_dict = t.branch_lookup[M+1]
+                    for p in keys(next_dict)
+                        if p[1:M] == db.prefix
+                            push!(prefs, p)
+                        end
                     end
                 end
             end
         end
     end
+
     return [view(db.dt, p) for p in sort(collect(prefs))]
 end
 
