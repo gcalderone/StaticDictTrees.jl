@@ -588,4 +588,28 @@ using StaticDictTrees
         out_lf = sprint(print_tree, StaticDictTrees.BranchAsRoot(lf))
         @test occursin("() => 10.0", out_lf)
     end
+
+    @testset "15. Corner Cases & Missing API Coverage" begin
+        # 1. Heterogeneous Key Routing (The typeof(key) bug fix)
+        dt_het = DictTree()
+        dt_het[(:Eng, 1)] = "A"       # Tuple{Symbol, Int}
+        dt_het[("Sales", 2.0)] = "B"  # Tuple{String, Float64} - Should NOT throw MethodError!
+        @test dt_het[("Sales", 2.0)] == "B"
+
+        # 2. DictBranch Deletion
+        dt_del = DictTree()
+        dt_del[(:A, :B, :C)] = 10
+        db_del = view(dt_del, (:A,))
+        delete!(db_del, (:B, :C))
+        @test length(dt_del) == 0
+
+        # 3. hasdepth via Label on DictBranch
+        dt_lbl = DictTree()
+        add_tree!(dt_lbl, SDTree{Tuple{Symbol, Symbol}, Any}(); label=:Team)
+        dt_lbl[(:Eng, :Backend)] = 1
+        db_lbl = view(dt_lbl, (:Eng,))
+
+        @test hasdepth(db_lbl, :Team)
+        @test !hasdepth(db_lbl, :FakeLabel)
+    end
 end

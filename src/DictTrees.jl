@@ -45,7 +45,7 @@ function Base.setindex!(dt::DictTree, value, key::Tuple)
     depth = length(key)
 
     if !haskey(dt.layers, depth)
-        add_tree!(dt, SDTree{typeof(key), Any}())  # trees created here always have `Any` values
+        add_tree!(dt, SDTree{NTuple{length(key), Any}, Any}())  # trees created here always have `Any` values
     end
 
     for d in 1:(depth - 1)
@@ -195,13 +195,15 @@ get_tree(db::DictBranch, label::Symbol) = view(get_tree(db.dt, label), db.prefix
 
 """
     hasdepth(dt::DictTree, depth::Int)
-    hasdepth(db::DictBranch, depth::Int)
+    hasdepth(dt::DictTree, label::Symbol)
+    hasdepth(db::DictBranch, label::Symbol)
 
-Returns `true` if the shell currently manages a tree or branch at the explicitly requested `depth`.
+Returns `true` if the shell currently manages a tree or branch at the requested `depth`, or which is identified by `label`.
 """
 hasdepth(dt::DictTree, depth::Int) = haskey(dt.layers, depth)
 hasdepth(dt::DictTree, label::Symbol) = haskey(dt.labels, label)  &&  haskey(dt.layers, dt.labels[label])
 hasdepth(db::DictBranch, depth::Int) = haskey(db.dt.layers, depth) && !isnothing(_safely_get_view(db.dt.layers[depth].tree, db.prefix))
+hasdepth(db::DictBranch, label::Symbol) = haskey(db.dt.labels, label)  &&  hasdepth(db, db.dt.labels[label])
 
 # ------------------------------------------------------------------------------
 # Tree Injection / Initialization

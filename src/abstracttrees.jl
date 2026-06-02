@@ -7,8 +7,10 @@ import AbstractTrees: children, printnode
 """
     children(d::SDTree)
     children(v::SDBranch)
+    children(dt::DictTree)
+    children(db::DictBranch)
 
-Returns an array of views (`SDBranch` or `SDLeaf`) representing the immediate structural children of the given tree or branch.
+Returns an array of views (`SDBranch`, `SDLeaf`, or `DictBranch`) representing the immediate structural children of the given tree or branch.
 """
 function children(d::SDTree{KT}) where {KT <: Tuple}
     if is_leaf_level(d)
@@ -33,7 +35,7 @@ children(::SDLeaf) = ()
 
 
 function children(dt::DictTree)
-    prefs = Set{Any}()
+    prefs = Set{Tuple}()
     for (d, layer) in dt.layers
         if d == 1
             for k in keys(layer.tree.lookup) push!(prefs, k) end
