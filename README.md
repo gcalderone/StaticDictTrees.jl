@@ -6,7 +6,7 @@
 
 > [!WARNING]
 > Breaking Changes in v0.2.0
-> The `keys(::SDTree, level::Int)` or `branches` methods are no longer supported. Also, the possibility to insert "metadata" using incomplete keys is no longer provided since the same functionality can now be obtained using the `DictTree` and `DictBranch` structures.
+> The `keys(::SDTree, level::Int)` or `branches` methods are no longer supported. The possibility to insert "metadata" using incomplete keys natively on `SDTree` is no longer provided since the same functionality can now be obtained dynamically using the `DictTree` and `DictBranch` structures.
 
 
 ## Quick start
@@ -63,14 +63,14 @@ While slightly slower than their static-depth counterparts (`SDTree` and `SDBran
 
 * $O(1)$ complexity for lookups, insertions, updates, and single-item deletions (`delete!`) for `SDTree` and `SDBranch`. Pruning a branch (`prune!`) scales proportionally to the number of items being removed;
 * Zero-allocation views on any branch of a static depth tree, with no need to allocate new dictionaries or copy data (`view`);
+* Programmable $O(1)$ data lifecycle hooks (`on_insert`, `on_update`, `on_delete`);
 * Provides a view to access the underlying contiguous (i.e., dense) `Vector` of values (`values_view`);
 * Availability of `delete!` and `prune!` methods to delete a single leaf value or an entire branch respectively;
-* Availability of `DictTree` and `DictBranch` structures to operate on trees with arbitrary depths;
+* Availability of `DictTree` and `DictBranch` structures to operate on trees with arbitrary depths with topological hooks (`on_new_branch`, `clean_on_empty_branch`);
 * Iterate all trees sequentially, i.e., with no nested loops;
 * Compatible with `AbstractDict` and `AbstractTrees` interfaces;
 * Dedicated `show()` methods allow you to easily display the tree structure in the REPL;
 * Docstrings available for all methods.
-
 
 
 ### Use cases
@@ -86,6 +86,8 @@ While slightly slower than their static-depth counterparts (`SDTree` and `SDBran
 - You need to implement an in-memory database index based on a composite primary key;
 
 - You need a data structure to represent a generic tree dictionary with arbitrary depths, but you also need $O(1)$ performance on a specific fixed-depth branch.
+
+- You need a tree data structure with data lifecycle and/or topological hooks.
 
 
 ## Installation
@@ -114,6 +116,45 @@ dt[2, :local,  "cache"]   = 2.1
 If you plan to insert a large number of entries, you can improve performance and reduce memory allocations by pre-allocating the internal memory using `sizehint!`:
 ```julia
 sizehint!(dt, 1_000_000)
+```
+
+### Programmable data lifecycle
+
+`SDTree` allows you to trigger custom functions during key-value insertions, updates, and deletions.  You can configure them using keyword arguments when constructing the tree:
+* `on_insert`: Triggers when a *new* key is added. Signature: `f(key, new_value) -> value_to_store`.
+* `on_update`: Triggers when an *existing* key is assigned a new value. Signature: `f(key, old_value, new_value) -> value_to_store`.
+* `on_delete`: Triggers right *before* a key is deleted. Signature: `f(key, value_about_to_be_deleted)`.
+
+
+**Example: A Self-Validating Experimental Data Accumulator**
+```julia
+# Track accumulated energy depositions in a particle detector
+sensor_log = SDTree{Tuple{Symbol, Int}, Float64}(
+    # 1. Reject physically invalid measurements on insertion
+    on_insert = (k, v) -> v >= 0.0 ? v : throw(ArgumentError("Energy cannot be negative!")),
+
+    # 2. Add incoming signals to the existing total (accumulator pattern)
+    on_update = (k, old_v, new_v) -> old_v + new_v,
+
+    # 3. Log a calibration warning when a sensor node is purged
+    on_delete = (k, v) -> println("WARNING: Sensor $k removed. Final accumulated energy: $v MeV")
+)
+
+# Attempt initialization with a negative value:
+# sensor_log[:Calorimeter, 1] = -1
+# Note: this would raise an error!
+
+# Initial particle hit on the Calorimeter, sensor ID 1
+sensor_log[:Calorimeter, 1] = 500.0  # Calls on_insert
+
+# Subsequent hit on the same sensor
+sensor_log[:Calorimeter, 1] = 120.0  # Calls on_update
+
+println(sensor_log[:Calorimeter, 1])
+# 620.0
+
+delete!(sensor_log, (:Calorimeter, 1)) # Calls on_delete
+# Prints: "WARNING: Sensor (:Calorimeter, 1) removed. Final accumulated energy: 620.0 MeV"
 ```
 
 ## Zero-allocation views
@@ -317,25 +358,25 @@ dept_tree[(:Engineering,)] = "Main Tech Hub"
 println(hasdepth(dt, :Department)) # true
 ```
 
-### Auto-initialization of intermediate depths
+### Topology hooks: auto-initialization (`on_new_branch`)
 
-In case inserting a deep leaf node requires its parent categories to exist, you can provide an `initializer` function to `add_tree!`. This will be automatically invoked whenever you insert a value at a deeper level to populate the missing intermediate parent trees with default values.
+In case inserting a deep leaf node requires its parent categories to exist, you can provide an `on_new_branch` function to `add_tree!`. This will be automatically invoked whenever you insert a value at a deeper level to populate the missing intermediate parent trees with default values.
 
 ```julia
 dt = DictTree()
 
-# Depth 1 Initializer
+# Depth 1 Hook
 add_tree!(dt, SDTree{Tuple{Symbol}, String}();
-          initializer = x -> "Default Dept: $x")
+          on_new_branch = x -> "Default Dept: $x")
 
-# Depth 2 Initializer: receives the partial tuple (x is a 2-Tuple)
+# Depth 2 Hook: receives the partial tuple (x is a 2-Tuple)
 add_tree!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
-          initializer = x -> "Default Team for $(x[1])")
+          on_new_branch = x -> "Default Team for $(x[1])")
 
 # We insert a leaf at depth 3...
 dt[(:Engineering, :Backend, :Alice)] = 95000.0
 
-# ...and the intermediate layers are automatically populated
+# ...and the intermediate layers are automatically populated!
 println(dt[(:Engineering,)])
 # Output: "Default Dept: Engineering"
 
@@ -343,29 +384,12 @@ println(dt[(:Engineering, :Backend)])
 # Output: "Default Team for Engineering"
 ```
 
-**Note:** Initializers do not overwrite existing values. They only trigger if the value at the specific depth *does not already exist*.
+**Note:** The `on_new_branch` hook does not overwrite existing values. It only triggers if the value at the specific structural depth *does not already exist*.
 
 
-### Data validation
+### Topology hooks: auto-cleaning (`clean_on_empty_branch`)
 
-You can provide a `validator` function when adding a tree layer to enforce custom business rules before values are inserted. The function receives the underlying `tree`, the `key`, and the `value` being inserted. If it returns `false`, the `DictTree` will immediately throw an `ArgumentError` and safely reject the insertion.
-
-```julia
-dt = DictTree()
-
-# Example: Ensure budgets are strictly positive and capped at 1,000,000
-add_tree!(dt, SDTree{Tuple{Symbol}, Float64}();
-          validator = (tree, key, val) -> 0.0 < val <= 1_000_000.0)
-
-dt[(:Marketing,)] = 50000.0   # Succeeds
-
-# dt[(:Engineering,)] = -50.0 # Throws ArgumentError!
-```
-
-
-### Auto-cleaning (Upward garbage collection)
-
-When working with hierarchical data, deleting all leaves of a branch can leave orphaned parent metadata behind. By setting `autoclean = true` when adding a tree layer, `DictTree` will automatically perform "upward garbage collection".
+When working with hierarchical data, deleting all leaves of a branch can leave orphaned parent metadata behind. By setting `clean_on_empty_branch = true` when adding a tree layer, `DictTree` will automatically perform "upward garbage collection".
 
 Whenever you `delete!` or `prune!` an element, the shell checks if its parent metadata is now the *only* item remaining in the branch. If it is, the parent is automatically deleted as well!
 
@@ -374,10 +398,10 @@ dt = DictTree()
 
 add_tree!(dt, SDTree{Tuple{Symbol}, String}();
           label=:Dept,
-          initializer = x -> "Auto-Dept: $x",
-          autoclean = true) # Enable auto-cleanup!
+          on_new_branch = x -> "Auto-Dept: $x",
+          clean_on_empty_branch = true) # Enable upward garbage collection!
 
-# Insert a deep leaf (initializers fire downward!)
+# Insert a deep leaf (auto-initialization creates the parents downward)
 dt[(:Eng, :Backend, :Alice)] = 95000.0
 
 # Verify there is an entry key at depth 1
@@ -393,7 +417,7 @@ println(haskey(dt, (:Eng,))) # false
 
 ### Cross-layer pruning
 
-Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match and recursively delete all associated elements across every deeper layer in the entire structure. If `autoclean = true` is configured for parent layers, pruning deep branches will also trigger upward cleanup of orphaned entries.
+Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match and recursively delete all associated elements across every deeper layer in the entire structure. If `clean_on_empty_branch = true` is configured for parent layers, pruning deep branches will also trigger upward cleanup of orphaned entries.
 
 ```julia
 # This will delete the data at (:Engineering, :Software)
@@ -402,18 +426,21 @@ prune!(dt, (:Engineering, :Software))
 
 println(haskey(dt, (:Engineering, :Software)))         # false
 println(haskey(dt, (:Engineering, :Software, :Alice))) # false
-println(haskey(dt, (:Engineering,)))                   # true (Parent is untouched, unless autoclean triggered)
+println(haskey(dt, (:Engineering,)))                   # true (Parent is untouched, unless auto-cleaning triggered)
 ```
 
 
 ### Value types of internal trees
 
-By default, dynamically created trees use `Any` as their value type to allow for flexible, heterogeneous routing. If you want strict type safety and performance for a specific depth layer, you can manually specify the value type by using `add_tree!`:
+By default, dynamically created trees use `Any` as their value type to allow for flexible, heterogeneous routing. If you want strict type safety, event-driven data hooks, and performance for a specific depth layer, you can manually inject a customized tree using `add_tree!`:
 
 ```julia
-# Allocate depth 1 tree to only accept Symbol keys and String values
 dt = DictTree()
-add_tree!(dt, SDTree{Tuple{Symbol}, String}())
+
+# Allocate a depth 1 tree to only accept Symbol keys and String values
+# Note: this internal tree can have its own on_insert/on_update/on_delete hooks too!
+my_strict_tree = SDTree{Tuple{Symbol}, String}()
+add_tree!(dt, my_strict_tree)
 
 dt[(:Engineering,)] = "Main Tech Hub"
 # dt[(:Logistics,)] = 100.0 # This would now throw a MethodError!
@@ -431,42 +458,42 @@ julia> include("test/check_performance.jl")
 --- Generate small (N=1,000) and large (N=1,000,000) datasets, and corresponding views containing half the entries ---
 
 --- Test lookups ---
-Dict       (N=    1000), Avg. time:      0.090 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.133 μs, Allocated:    0 MB
-SDTree     (N=    1000), Avg. time:      0.127 μs, Allocated:    0 MB
+Dict       (N=    1000), Avg. time:      0.085 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.131 μs, Allocated:    0 MB
+SDTree     (N=    1000), Avg. time:      0.132 μs, Allocated:    0 MB
 SDTree     (N= 1000000), Avg. time:      0.209 μs, Allocated:    0 MB
-SDBranch   (N=     500), Avg. time:      0.077 μs, Allocated:    0 MB
-SDBranch   (N=  500000), Avg. time:      0.180 μs, Allocated:    0 MB
+SDBranch   (N=     500), Avg. time:      0.069 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      0.175 μs, Allocated:    0 MB
 
 --- Test update ---
-Dict       (N=    1000), Avg. time:      0.093 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.152 μs, Allocated:    0 MB
-SDTree     (N=    1000), Avg. time:      0.205 μs, Allocated:    0 MB
-SDTree     (N= 1000000), Avg. time:      0.366 μs, Allocated:    0 MB
-SDBranch   (N=     500), Avg. time:      0.285 μs, Allocated:    0 MB
-SDBranch   (N=  500000), Avg. time:      0.390 μs, Allocated:    0 MB
+Dict       (N=    1000), Avg. time:      0.098 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.160 μs, Allocated:    0 MB
+SDTree     (N=    1000), Avg. time:      0.144 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      0.235 μs, Allocated:    0 MB
+SDBranch   (N=     500), Avg. time:      0.199 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      0.241 μs, Allocated:    0 MB
 
 --- Test insertion ---
-Dict       (N=    1000), Avg. time:      0.047 μs, Allocated:    0 MB
-Dict       (N= 1000000), Avg. time:      0.260 μs, Allocated:  164 MB
-SDTree     (N=    1000), Avg. time:      0.653 μs, Allocated:    0 MB
-SDTree     (N= 1000000), Avg. time:      1.751 μs, Allocated:  393 MB
-SDBranch   (N=     500), Avg. time:      0.820 μs, Allocated:    0 MB
-SDBranch   (N=  500000), Avg. time:      1.657 μs, Allocated:  149 MB
+Dict       (N=    1000), Avg. time:      0.048 μs, Allocated:    0 MB
+Dict       (N= 1000000), Avg. time:      0.240 μs, Allocated:  164 MB
+SDTree     (N=    1000), Avg. time:      0.629 μs, Allocated:    0 MB
+SDTree     (N= 1000000), Avg. time:      1.531 μs, Allocated:  393 MB
+SDBranch   (N=     500), Avg. time:      0.753 μs, Allocated:    0 MB
+SDBranch   (N=  500000), Avg. time:      1.705 μs, Allocated:  149 MB
 
 --- Test delete ---
-Dict       (N=    1000, deleted    100 entries), Avg. time:      0.272 μs, Allocated:    0 MB
-Dict       (N= 1000000, deleted    100 entries), Avg. time:      0.437 μs, Allocated:    0 MB
-SDTree     (N=    1000, deleted    100 entries), Avg. time:      2.169 μs, Allocated:    0 MB
-SDTree     (N= 1000000, deleted    100 entries), Avg. time:      3.555 μs, Allocated:    0 MB
-SDBranch   (N=     500, deleted    100 entries), Avg. time:      1.914 μs, Allocated:    0 MB
-SDBranch   (N=  500000, deleted    100 entries), Avg. time:      3.485 μs, Allocated:    0 MB
+Dict       (N=    1000, deleted    100 entries), Avg. time:      0.273 μs, Allocated:    0 MB
+Dict       (N= 1000000, deleted    100 entries), Avg. time:      0.324 μs, Allocated:    0 MB
+SDTree     (N=    1000, deleted    100 entries), Avg. time:      1.857 μs, Allocated:    0 MB
+SDTree     (N= 1000000, deleted    100 entries), Avg. time:      3.386 μs, Allocated:    0 MB
+SDBranch   (N=     500, deleted    100 entries), Avg. time:      1.915 μs, Allocated:    0 MB
+SDBranch   (N=  500000, deleted    100 entries), Avg. time:      3.480 μs, Allocated:    0 MB
 
 --- Test prune ---
 SDTree     (N=    1000, deleted    500 entries), Avg. time:      1.010 μs, Allocated:    0 MB
-SDTree     (N= 1000000, deleted 500000 entries), Avg. time:      2.102 μs, Allocated:   11 MB
-SDBranch   (N=     500, deleted    500 entries), Avg. time:      0.962 μs, Allocated:    0 MB
-SDBranch   (N=  500000, deleted 500000 entries), Avg. time:      2.154 μs, Allocated:    8 MB
+SDTree     (N= 1000000, deleted 500000 entries), Avg. time:      2.260 μs, Allocated:   11 MB
+SDBranch   (N=     500, deleted    500 entries), Avg. time:      1.002 μs, Allocated:    0 MB
+SDBranch   (N=  500000, deleted 500000 entries), Avg. time:      2.191 μs, Allocated:    8 MB
 (pruning is not supported by Dict ...)
 ```
 Note: all the above timings are calculated per *single operation*, while the allocated memory is reported as total allocations.
