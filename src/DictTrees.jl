@@ -5,16 +5,12 @@ export DictTree, DictBranch, get_tree, hasdepth, add_tree!
 # ------------------------------------------------------------------------------
 struct TreeLayer
     tree::SDTree
-    initializer::Union{Nothing, Function}
-    transformer::Function
-    autoclean::Bool
+    on_new_branch::Union{Nothing, Function}
+    clean_on_empty_branch::Bool
 end
-
-_identity_transformer(t, k, v) = v
 
 """
     DictTree()
-    DictTree(tree::SDTree; label::Union{Nothing, Symbol}=nothing, initializer::Union{Nothing, Function}=nothing)
     DictTree(args...)
 
 A tree with dynamic depth to manage a collection of static depth `SDTree` objects. It automatically routes data assignments and lookups to the proper `SDTree` based on the length of the provided `Tuple` key.
@@ -50,18 +46,17 @@ function Base.setindex!(dt::DictTree, value, key::Tuple)
 
     for d in 1:(depth - 1)
         layer = get(dt.layers, d, nothing)
-        if !isnothing(layer) && !isnothing(layer.initializer)
+        if !isnothing(layer) && !isnothing(layer.on_new_branch)
             prefix = key[1:d]
             if !haskey(layer.tree, prefix)
                 arg = d == 1  ?  prefix[1]  :  prefix
-                init_val = layer.initializer(arg)
-                layer.tree[prefix] = layer.transformer(layer.tree, prefix, init_val)
+                layer.tree[prefix] = layer.on_new_branch(arg)
             end
         end
     end
 
     target_layer = dt.layers[depth]
-    target_layer.tree[key] = target_layer.transformer(target_layer.tree, key, value)
+    target_layer.tree[key] = value
     return value
 end
 Base.setindex!(dt::DictTree, value, key) = setindex!(dt, value, (key,))
@@ -211,31 +206,28 @@ hasdepth(db::DictBranch, label::Symbol) = haskey(db.dt.labels, label)  &&  hasde
 """
     add_tree!(dt::DictTree, tree::SDTree;
               label::Union{Nothing, Symbol}=nothing,
-              initializer::Union{Nothing, Function}=nothing,
-              transformer::Function=(t, k, v) -> v,
-              autoclean::Bool=false)
+              on_new_branch::Union{Nothing, Function}=nothing,
+              clean_on_empty_branch::Bool=false)
 
 Manually injects an existing `SDTree` into the `DictTree` shell.
 
 **Keyword Arguments:**
 * `label`: Assigns a semantic label to the specific tree depth, allowing you to retrieve the tree later using `get_tree(dt, label)`.
-* `initializer`: A function mapping a partial tuple key (`KT`) to a value (`VT`). It is automatically invoked to populate this layer whenever a user sets a value at a deeper level and the intermediate branch doesn't exist.
-* `transformer`: A function `f(tree::SDTree, key, value) -> VT` used to modify, coerce, or validate a value before it is inserted into the tree. Defaults to an identity function.
-* `autoclean`: If set to `true`, deleting or pruning all the deeper children of a node will automatically trigger the deletion of this layer's corresponding entries, keeping the tree free of orphaned branches.
+* `on_new_branch`: A function mapping a partial tuple key (`KT`) to a value (`VT`). It is automatically invoked to populate this layer whenever a user sets a value at a deeper level and the intermediate branch doesn't exist.
+* `clean_on_empty_branch`: If set to `true`, deleting or pruning all the deeper children of a node will automatically trigger the deletion of this layer's corresponding entries, keeping the tree free of orphaned branches.
 
 Throws an `ArgumentError` if the shell already manages a tree at that specific depth.
 """
 function add_tree!(dt::DictTree, tree::SDTree;
                    label::Union{Nothing, Symbol}=nothing,
-                   initializer::Union{Nothing, Function}=nothing,
-                   transformer::Function=_identity_transformer,
-                   autoclean::Bool=false)
+                   on_new_branch::Union{Nothing, Function}=nothing,
+                   clean_on_empty_branch::Bool=false)
     d = depth(tree)
     if haskey(dt.layers, d)
         throw(ArgumentError("DictTree already contains a tree at depth $d."))
     end
 
-    dt.layers[d] = TreeLayer(tree, initializer, transformer, autoclean)
+    dt.layers[d] = TreeLayer(tree, on_new_branch, clean_on_empty_branch)
     isnothing(label)  ||  (dt.labels[label] = d)
 
     return dt

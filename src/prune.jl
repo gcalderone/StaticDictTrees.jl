@@ -6,6 +6,7 @@ export prune!
     return :(d.branch_lookup[$L]::Dict{$prefix_type, OrderedDict{$branch_type, Int}})
 end
 
+
 """
     prune!(d::SDTree, prefix::Tuple)
     prune!(v::SDBranch, prefix::Tuple)
@@ -13,6 +14,8 @@ end
     prune!(db::DictBranch, prefix::Tuple)
 
 Deletes all leaves having `prefix` in their keys.
+
+*Note:* This operation performs a batch deletion, meaning the `on_delete` hook will be triggered individually for every leaf that is pruned.
 """
 function prune!(d::SDTree{KT}, prefix::T) where {KT <: Tuple, T <: Tuple}
     M = fieldcount(T)
@@ -69,7 +72,7 @@ function prune!(dt::DictTree, prefix::Tuple)
     # Upward cascade: automatically clean up orphaned parent metadata
     for d in (target_depth - 1):-1:1
         if haskey(dt.layers, d)
-            if dt.layers[d].autoclean
+            if dt.layers[d].clean_on_empty_branch
                 t = get_tree(dt, d)
                 pref = prefix[1:d]
                 if haskey(t, pref)

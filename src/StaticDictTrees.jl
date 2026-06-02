@@ -5,12 +5,18 @@ import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values,
 
 export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, values_view
 
+
+_default_insert(key, newval) = newval
+_default_update(key, oldval, newval) = newval
+_default_delete(key, oldval) = nothing
+
 #=
 Conventions:
 - KT: Key Type
 - VT: Value Type
 - PT: Prefix Type
 - ST: Suffix Type
+- HT: Hook Type
 =#
 
 """
@@ -28,20 +34,29 @@ abstract type AbstractSDTree{KT <: Tuple, VT} <: AbstractDict{KT, VT} end
 
 A flattened hierarchical dictionary that maps fixed-depth `Tuple` keys of type `KT` to values of type `VT`, while still allowing to retrieve all values as a (view on a) `Vector`.
 """
-struct SDTree{KT <: Tuple, VT} <: AbstractSDTree{KT, VT}
+struct SDTree{KT <: Tuple, VT, HT} <: AbstractSDTree{KT, VT}
     keys::Vector{KT}
     values::Vector{VT}
     lookup::OrderedDict{KT, Int}
     viewid::Vector{Int}
     branch_lookup::Tuple
+    hooks::HT # lifecycle hooks
 
 """
-    SDTree{KT, VT}(args...)
-    SDTree{KT, VT}()
+    SDTree{KT, VT}(args...; kwargs...)
+    SDTree{KT, VT}(; kwargs...)
 
 Constructs an `SDTree` with keys of type `KT` and leaf values of type `VT`.
+
+**Keyword Arguments:**
+* `on_insert`: A function `f(tree::SDTree, key::KT, value) -> VT` invoked when a new key is added. It must return the value that will actually be stored. Defaults to an identity function.
+* `on_update`: A function `f(tree::SDTree, key::KT, old_value::VT, new_value) -> VT` invoked when an existing key is modified. It must return the updated value. Defaults to returning `new_value`.
+* `on_delete`: A function `f(tree::SDTree, key::KT, value::VT)` invoked right *before* a key-value pair is deleted from the tree. Defaults implementation does nothing.
 """
-    function SDTree{KT, VT}(args...) where {KT <: Tuple, VT}
+    function SDTree{KT, VT}(args...;
+                            on_insert::Function=_default_insert,
+                            on_update::Function=_default_update,
+                            on_delete::Function=_default_delete) where {KT <: Tuple, VT}
         N = fieldcount(KT)
         if N > 0
             bl = ntuple(N-1) do i
@@ -54,11 +69,17 @@ Constructs an `SDTree` with keys of type `KT` and leaf values of type `VT`.
             bl = ()
         end
 
-        out = new{KT, VT}(KT[], VT[], OrderedDict{KT, Int}(), Int[], bl)
+        hooks = (on_insert=on_insert,
+                 on_update=on_update,
+                 on_delete=on_delete)
+        HT = typeof(hooks)
+
+        out = new{KT, VT, typeof(hooks)}(KT[], VT[], OrderedDict{KT, Int}(), Int[], bl, hooks)
         _populate_dict!(out, args...)
         return out
     end
 end
+
 
 """
     SDTree(dict::AbstractDict{KT, VT})
@@ -137,11 +158,13 @@ end
 Inserts or updates a value in the tree at the given `key`, or at the given `suffix` (used in conjunction with the branch prefix to produce the entire key).
 """
 function setindex!(d::SDTree{KT}, value, key::KT) where {KT <: Tuple}
-    if haskey(d.lookup, key)
-        d.values[d.lookup[key]] = value
+    idx = get(d.lookup, key, nothing)
+    if !isnothing(idx)
+        old_val = d.values[idx]
+        d.values[idx] = d.hooks.on_update(key, old_val, value)
     else
         push!(d.keys, key)
-        push!(d.values, value)
+        push!(d.values, d.hooks.on_insert(key, value))
         I = length(d.values)
         d.lookup[key] = I
         _populate_branch_lookup!(d, key, I)
@@ -161,23 +184,23 @@ setindex!(d::SDTree{KT}, value, key)    where {KT <: Tuple} = setindex!(d, value
 
 Creates a type-stable view into the specific branch of a `SDTree` identified by an incomplete key (`prefix`).
 """
-struct SDBranch{KT, PT, ST, VT} <: AbstractSDTree{ST, VT}
-    root::SDTree{KT, VT}
+struct SDBranch{KT, PT, ST, VT, HT} <: AbstractSDTree{ST, VT}
+    root::SDTree{KT, VT, HT}
     prefix::PT
     lookup::OrderedDict{ST, Int}
 
-    function SDBranch(d::SDTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
+    function SDBranch(d::SDTree{KT, VT, HT}, prefix::PT) where {KT, VT, PT <: Tuple, HT}
         N = fieldcount(KT)
         M = fieldcount(PT)
         (M < N)  ||  throw(ArgumentError("Prefix length ($M) must be strictly less than key length ($N)."))
         if haskey(d.branch_lookup[M], prefix)
             ST = Tuple{fieldtypes(KT)[M+1:end]...}
-            new{KT, PT, ST, VT}(d, prefix, d.branch_lookup[M][prefix])
+            new{KT, PT, ST, VT, HT}(d, prefix, d.branch_lookup[M][prefix])
         else
             throw(KeyError(prefix))
         end
     end
-    SDBranch(v::SDBranch{KT, PT, ST, VT}, suffix::Tuple) where {KT, PT, ST, VT} = SDBranch(v.root, (v.prefix..., suffix...))
+    SDBranch(v::SDBranch, suffix::Tuple) = SDBranch(v.root, (v.prefix..., suffix...))
 end
 
 function empty!(v::SDBranch)
@@ -210,12 +233,12 @@ setindex!(v::SDBranch{KT, PT, ST}, value, key)    where {KT <: Tuple, PT <: Tupl
 
 A zero-allocation view into a specific leaf of an `SDTree`. It acts as a 0-dimensional dictionary containing exactly one value.
 """
-struct SDLeaf{KT, VT} <: AbstractSDTree{Tuple{}, VT}
-    root::SDTree{KT, VT}
+struct SDLeaf{KT, VT, HT} <: AbstractSDTree{Tuple{}, VT}
+    root::SDTree{KT, VT, HT}
     key::KT
 
-    SDLeaf(d::SDTree{KT, VT}, key::KT) where {KT, VT} = new{KT, VT}(d, key)
-    SDLeaf(v::SDBranch{KT, PT, ST, VT}, suffix::ST) where {KT, PT, ST, VT} = new{KT, VT}(v.root, (v.prefix..., suffix...))
+    SDLeaf(d::SDTree{KT, VT, HT}, key::KT) where {KT, VT, HT} = new{KT, VT, HT}(d, key)
+    SDLeaf(v::SDBranch, suffix::Tuple) = SDLeaf(v.root, (v.prefix..., suffix...))
 end
 
 function empty!(v::SDLeaf)

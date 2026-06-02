@@ -39,10 +39,15 @@ end
     delete!(d::DictBranch, key::Tuple)
 
 Removes a specific value from the tree.
+
+*Note:* For `SDTree`, this will trigger the `on_delete` hook before the data is destroyed. For `DictTree`, this will also trigger upward garbage collection on parent layers if `clean_on_empty_branch` is enabled.
 """
 function delete!(d::SDTree{KT}, key::KT) where {KT <: Tuple}
     vacant_pos = get(d.lookup, key, nothing)
     isnothing(vacant_pos)  &&  return d
+
+    # deletion hook
+    d.hooks.on_delete(key, d.values[vacant_pos])
 
     empty!(d.viewid)
     delete!(d.lookup, key)
@@ -93,7 +98,7 @@ function Base.delete!(dt::DictTree, key::Tuple)
 
     for d in (target_depth - 1):-1:1
         if haskey(dt.layers, d)
-            if dt.layers[d].autoclean
+            if dt.layers[d].clean_on_empty_branch
                 t = get_tree(dt, d)
                 prefix = key[1:d]
                 if haskey(t, prefix)
