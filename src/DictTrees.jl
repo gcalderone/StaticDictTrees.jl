@@ -89,13 +89,13 @@ function Base.empty!(dt::DictTree)
 end
 
 # DictTree helpers
-
 _sorted_trees(dt::DictTree, min_depth=0) = (dt.layers[d].tree for d in sort(collect(keys(dt.layers))) if d >= min_depth)
 
 function _safely_get_view(t::SDTree, prefix::Tuple)
     try
         return view(t, prefix)
-    catch KeyError
+    catch err
+        (err isa KeyError)  ||  rethrow()
         return nothing
     end
 end
@@ -136,7 +136,7 @@ function Base.empty!(db::DictBranch)
     return db
 end
 
-Base.view(dt::DictTree, prefix::Tuple) = DictBranch(dt, prefix)
+Base.view(dt::DictTree, prefix::Tuple) = isempty(prefix)  ?  dt  :  DictBranch(dt, prefix)
 Base.view(dt::DictTree, key) = view(dt, (key,))
 
 function Base.getindex(db::DictBranch, key::Tuple)

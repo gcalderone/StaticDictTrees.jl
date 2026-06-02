@@ -451,11 +451,27 @@ end
 
 Returns a view into a specific part of the tree.
 """
-view(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple} = length(prefix) == fieldcount(KT)  ?  SDLeaf(d, prefix)  :  SDBranch(d, prefix)
-view(d::SDTree{KT}, prefix)        where {KT <: Tuple} = view(d, (prefix,))
+function view(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple}
+    if length(prefix) == fieldcount(KT)
+        return SDLeaf(d, prefix)
+    elseif length(prefix) == 0
+        return d
+    else
+        return SDBranch(d, prefix)
+    end
+end
+view(d::SDTree{KT}, prefix) where {KT <: Tuple} = view(d, (prefix,))
 
-view(v::SDBranch{KT, PT, ST}, suffix::Tuple) where {KT, PT, ST} = length(suffix) == fieldcount(ST)  ?  SDLeaf(v.root, (v.prefix..., suffix...))  :  SDBranch(v.root, (v.prefix..., suffix...))
-view(v::SDBranch{KT, PT, ST}, suffix)        where {KT, PT, ST} = view(v, (suffix,))
+function view(v::SDBranch{KT, PT, ST}, suffix::Tuple) where {KT, PT, ST}
+    if length(suffix) == fieldcount(ST)
+        return SDLeaf(v.root, (v.prefix..., suffix...))
+    elseif length(suffix) == 0
+        return v
+    else
+        return SDBranch(v.root, (v.prefix..., suffix...))
+    end
+end
+view(v::SDBranch{KT, PT, ST}, suffix) where {KT, PT, ST} = view(v, (suffix,))
 
 
 include("DictTrees.jl")

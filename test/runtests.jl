@@ -666,4 +666,22 @@ using StaticDictTrees
         out_dis = sprint(print_tree, StaticDictTrees.BranchAsRoot(lf_dis))
         @test occursin("2 => \"Display\"", out_dis)
     end
+
+    @testset "15. Root Views and Empty Prefixes" begin
+        dt = DictTree()
+        dt[(:A, :B, :C)] = 1
+        dt[()] = "Root"
+
+        # Taking a view of the absolute root should return the whole tree
+        v = view(dt, ())
+        @test length(v) == 2 # 1 for (), 1 for (:A, :B, :C)
+        @test v[()] == "Root"
+        @test v[(:A, :B, :C)] == 1
+        @test v === dt # Empty prefix view on DictTree returns itself
+
+        # Test SDTree view with empty tuple avoids BoundsError
+        sdt = SDTree((:X, :Y) => 10)
+        v_sdt = view(sdt, ())
+        @test v_sdt === sdt # Empty prefix view on SDTree returns itself
+    end
 end
