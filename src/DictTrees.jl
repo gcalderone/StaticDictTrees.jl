@@ -44,7 +44,7 @@ function Base.setindex!(dt::DictTree, value, key::Tuple)
         add_tree!(dt, SDTree{NTuple{length(key), Any}, Any}())  # trees created here always have `Any` values
     end
 
-    for d in 1:(depth - 1)
+    for d in 0:(depth - 1)
         layer = get(dt.layers, d, nothing)
         if !isnothing(layer) && !isnothing(layer.on_new_branch)
             prefix = key[1:d]

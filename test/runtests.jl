@@ -684,4 +684,28 @@ using StaticDictTrees
         v_sdt = view(sdt, ())
         @test v_sdt === sdt # Empty prefix view on SDTree returns itself
     end
+
+    @testset "16. Depth-0 Topology Hooks (Root Auto-Init & Clean)" begin
+        dt = DictTree()
+
+        # 1. Depth-0 Auto-Initialization
+        add_tree!(dt, SDTree{Tuple{}, Float64}();
+                  on_new_branch = key -> NaN,
+                  clean_on_empty_branch = true)
+
+        add_tree!(dt, SDTree{Tuple{Symbol}, Float64}())
+
+        dt[:a] = 1.0 # Insert at depth 1
+
+        # The depth-0 hook should have fired!
+        @test haskey(dt, ())
+        @test isnan(dt[()])
+
+        # 2. Depth-0 Auto-Cleaning
+        # If we delete the only leaf, the root `()` should clean itself up
+        delete!(dt, :a)
+
+        @test !haskey(dt, ())
+        @test length(dt) == 0
+    end
 end

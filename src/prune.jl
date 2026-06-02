@@ -70,7 +70,7 @@ function prune!(dt::DictTree, prefix::Tuple)
     end
 
     # Upward cascade: automatically clean up orphaned parent metadata
-    for d in (target_depth - 1):-1:1
+    for d in (target_depth - 1):-1:0
         if haskey(dt.layers, d)
             if dt.layers[d].clean_on_empty_branch
                 t = get_tree(dt, d)

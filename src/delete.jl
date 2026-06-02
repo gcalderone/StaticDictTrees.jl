@@ -96,7 +96,7 @@ function Base.delete!(dt::DictTree, key::Tuple)
         delete!(dt.layers[target_depth].tree, key)
     end
 
-    for d in (target_depth - 1):-1:1
+    for d in (target_depth - 1):-1:0
         if haskey(dt.layers, d)
             if dt.layers[d].clean_on_empty_branch
                 t = get_tree(dt, d)
