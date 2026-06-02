@@ -370,14 +370,15 @@ using StaticDictTrees
 
     @testset "10. DictBranch Cross-Layer Subsets & Pruning" begin
         dt = DictTree()
+
+        # Early creation of a DictBranch which span multiple layers, including the exact prefix match
+        db = view(dt, (:A,))
+
         dt[(:A,)] = "A-Meta"
         dt[(:A, :B)] = "B-Meta"
         dt[(:A, :B, 1)] = 10.0
         dt[(:A, :C, 2)] = 20.0
         dt[(:Z,)] = "Z-Meta"
-
-        # DictBranch spans multiple layers, including the exact prefix match
-        db = view(dt, (:A,))
 
         # Length is 4 representing relative keys: (), (:B,), (:B, 1), and (:C, 2)
         @test length(db) == 4
@@ -486,21 +487,22 @@ using StaticDictTrees
         @test dt[(:Sales,)] == "Main Sales Hub"
     end
 
-    @testset "13. DictTree Shell Hooks: Initializers, Validators, Autoclean" begin
-        # 1. Validators
+    @testset "13. DictTree Shell Hooks: Initializers, Transformers, Autoclean" begin
+        # 1. Transformers (Validation and Modification)
         dt_val = DictTree()
 
-        # Add a depth 1 tree that only accepts positive Float64 values
+        # Add a depth 1 tree that rounds positive values and rejects negative ones
         add_tree!(dt_val, SDTree{Tuple{Symbol}, Float64}();
                   label=:Dept,
-                  validator = (t, k, v) -> v > 0.0)
+                  transformer = (t, k, v) -> v > 0.0 ? round(v; digits=1) : throw(ArgumentError("Value must be positive")))
 
-        dt_val[(:Sales,)] = 100.0 # Valid
-        @test dt_val[(:Sales,)] == 100.0
+        dt_val[(:Sales,)] = 100.56 # Valid, should be rounded
+        @test dt_val[(:Sales,)] == 100.6
 
-        # Invalid insertion should throw ArgumentError and NOT insert
+        # Invalid insertion should throw our custom ArgumentError and NOT insert
         @test_throws ArgumentError dt_val[(:Eng,)] = -50.0
         @test !haskey(dt_val, (:Eng,))
+
 
         # 2. Initializers & Overwrite Protection
         dt = DictTree()

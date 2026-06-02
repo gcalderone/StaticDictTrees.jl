@@ -34,11 +34,11 @@ children(::SDLeaf) = ()
 
 function children(dt::DictTree)
     prefs = Set{Any}()
-    for (d, t) in dt.trees
+    for (d, layer) in dt.layers
         if d == 1
-            for k in keys(t.lookup) push!(prefs, k) end
+            for k in keys(layer.tree.lookup) push!(prefs, k) end
         elseif d > 1
-            for k in keys(t.branch_lookup[1]) push!(prefs, k) end
+            for k in keys(layer.tree.branch_lookup[1]) push!(prefs, k) end
         end
     end
     return [view(dt, p) for p in sort(collect(prefs))]
@@ -48,9 +48,9 @@ function children(db::DictBranch)
     M = length(db.prefix)
     prefs = Set{Tuple}()
 
-    for (d, t) in db.dt.trees
+    for (d, layer) in db.dt.layers
         if d > M
-            b = _safely_get_view(t, db.prefix)
+            b = _safely_get_view(layer.tree, db.prefix)
 
             if !isnothing(b)
                 if d == M + 1
@@ -58,7 +58,7 @@ function children(db::DictBranch)
                         push!(prefs, (db.prefix..., suff...))
                     end
                 else
-                    next_dict = t.branch_lookup[M+1]
+                    next_dict = layer.tree.branch_lookup[M+1]
                     for p in keys(next_dict)
                         if p[1:M] == db.prefix
                             push!(prefs, p)

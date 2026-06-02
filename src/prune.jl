@@ -60,20 +60,22 @@ prune!(v::SDBranch{KT, PT, ST}, path) where {KT <: Tuple, PT <: Tuple, ST <: Tup
 function prune!(dt::DictTree, prefix::Tuple)
     target_depth = length(prefix)
 
-    for (d, t) in dt.trees
+    for (d, layer) in dt.layers
         if d >= target_depth
-            prune!(t, prefix)
+            prune!(layer.tree, prefix)
         end
     end
 
     # Upward cascade: automatically clean up orphaned parent metadata
     for d in (target_depth - 1):-1:1
-        if get(dt.autocleans, d, false)
-            t = get_tree(dt, d)
-            pref = prefix[1:d]
-            if haskey(t, pref)
-                if length(view(dt, pref)) == 1
-                    delete!(t, pref)
+        if haskey(dt.layers, d)
+            if dt.layers[d].autoclean
+                t = get_tree(dt, d)
+                pref = prefix[1:d]
+                if haskey(t, pref)
+                    if length(view(dt, pref)) == 1
+                        delete!(t, pref)
+                    end
                 end
             end
         end
