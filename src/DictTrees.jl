@@ -1,4 +1,4 @@
-export DictTree, DictBranch, get_layer, haslayer, add_layer!
+export DictTree, DictBranch, get_layer, haslayer, add_layer!, getlabels
 
 # ------------------------------------------------------------------------------
 # TreeLayer Definition
@@ -199,6 +199,16 @@ haslayer(dt::DictTree, depth::Int) = haskey(dt.layers, depth)
 haslayer(dt::DictTree, label::Symbol) = haskey(dt.labels, label)  &&  haskey(dt.layers, dt.labels[label])
 haslayer(db::DictBranch, depth::Int) = haskey(db.dt.layers, depth) && !isnothing(_safely_get_view(db.dt.layers[depth].tree, db.prefix))
 haslayer(db::DictBranch, label::Symbol) = haskey(db.dt.labels, label)  &&  haslayer(db, db.dt.labels[label])
+
+"""
+    getlabels(dt::DictTree)
+    getlabels(db::DictBranch)
+
+Returns the dictionary mapping `Symbol` labels to their corresponding tree depths.
+"""
+getlabels(dt::DictTree) = dt.labels
+getlabels(db::DictBranch) = db.dt.labels
+
 
 # ------------------------------------------------------------------------------
 # Tree Injection / Initialization

@@ -356,6 +356,10 @@ dept_tree[(:Engineering,)] = "Main Tech Hub"
 
 # You can also check for existence using the label
 println(haslayer(dt, :Department)) # true
+
+# To inspect all assigned labels and their corresponding depths, use `getlabels`
+println(getlabels(dt))
+# Dict(:Department => 1)
 ```
 
 ### Topology hooks: auto-initialization (`on_new_branch`)

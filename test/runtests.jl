@@ -540,6 +540,8 @@ using StaticDictTrees
         @test haslayer(dt, :Dept)
         @test haslayer(dt, :Team)
         @test !haslayer(dt, :Unknown)
+        @test getlabels(dt)[:Dept] == 1
+        @test getlabels(dt)[:Team] == 2
 
         t_dept = get_layer(dt, :Dept)
         @test t_dept isa SDTree{Tuple{Symbol}, String}
