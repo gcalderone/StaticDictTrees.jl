@@ -378,9 +378,9 @@ using StaticDictTrees
         dt[(:Eng, :Sw, 1)] = 95.0
 
         @test length(dt) == 3
-        @test hasdepth(dt, 1)
-        @test hasdepth(dt, 3)
-        @test !hasdepth(dt, 4)
+        @test haslayer(dt, 1)
+        @test haslayer(dt, 3)
+        @test !haslayer(dt, 4)
 
         @test dt[(:Eng,)] == "Engineering"
         @test dt[(:Eng, :Sw, 1)] == 95.0
@@ -404,7 +404,7 @@ using StaticDictTrees
         # DictTree Extra Constructors
         t_core = SDTree((1, 2) => "A")
         dt_kw = DictTree(t_core; label=:MyLayer)
-        @test get_tree(dt_kw, :MyLayer) === t_core
+        @test get_layer(dt_kw, :MyLayer) === t_core
 
         d_standard = Dict((1,) => "X", (2, 3) => "Y")
         dt_dict = DictTree(d_standard)
@@ -498,50 +498,50 @@ using StaticDictTrees
         @test length(db_prune_sc) == 0
     end
 
-    @testset "12. Explicit Typed Injection (add_tree! & get_tree)" begin
+    @testset "12. Explicit Typed Injection (add_layer! & get_layer)" begin
         dt = DictTree()
 
-        add_tree!(dt, SDTree{Tuple{Int}, String}())
+        add_layer!(dt, SDTree{Tuple{Int}, String}())
 
         dt[(1,)] = "Hello"
         @test dt[(1,)] == "Hello"
 
         @test_throws MethodError dt[(2,)] = 100.0
-        @test_throws ArgumentError add_tree!(dt, SDTree{Tuple{Int}, Float64}())
+        @test_throws ArgumentError add_layer!(dt, SDTree{Tuple{Int}, Float64}())
 
-        t1 = get_tree(dt, 1)
+        t1 = get_layer(dt, 1)
         @test t1 isa SDTree{Tuple{Int}, String}
         @test t1[(1,)] == "Hello"
 
-        @test_throws KeyError get_tree(dt, 99)
+        @test_throws KeyError get_layer(dt, 99)
 
         # Layer accessors from branch views
         db_scalar = view(dt, (1,))
-        add_tree!(dt, SDTree{Tuple{Int, Int, Int}, Int}())
+        add_layer!(dt, SDTree{Tuple{Int, Int, Int}, Int}())
         dt[(1, 2, 3)] = 4
-        @test get_tree(db_scalar, 3) isa AbstractSDTree
+        @test get_layer(db_scalar, 3) isa AbstractSDTree
     end
 
     @testset "13. DictTree Labels & Topology Hooks (on_new_branch, clean_on_empty_branch)" begin
         dt = DictTree()
 
         # Depth 1: Department level
-        add_tree!(dt, SDTree{Tuple{Symbol}, String}();
+        add_layer!(dt, SDTree{Tuple{Symbol}, String}();
                   label=:Dept,
                   on_new_branch = x -> "Auto-Dept: $x",
                   clean_on_empty_branch = true)
 
         # Depth 2: Team level
-        add_tree!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
+        add_layer!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
                   label=:Team,
                   on_new_branch = x -> "Auto-Team: $(x[1])-$(x[2])",
                   clean_on_empty_branch = true)
 
-        @test hasdepth(dt, :Dept)
-        @test hasdepth(dt, :Team)
-        @test !hasdepth(dt, :Unknown)
+        @test haslayer(dt, :Dept)
+        @test haslayer(dt, :Team)
+        @test !haslayer(dt, :Unknown)
 
-        t_dept = get_tree(dt, :Dept)
+        t_dept = get_layer(dt, :Dept)
         @test t_dept isa SDTree{Tuple{Symbol}, String}
 
         # Auto-Initialization
@@ -554,9 +554,9 @@ using StaticDictTrees
 
         # Label Accessors via DictBranch
         db = view(dt, (:Eng,))
-        @test get_tree(db, :Team) isa AbstractSDTree
-        @test hasdepth(db, :Team)
-        @test !hasdepth(db, :FakeLabel)
+        @test get_layer(db, :Team) isa AbstractSDTree
+        @test haslayer(db, :Team)
+        @test !haslayer(db, :FakeLabel)
 
         # Overwrite Protection
         dt[(:Sales,)] = "Main Sales Hub"
@@ -689,11 +689,11 @@ using StaticDictTrees
         dt = DictTree()
 
         # 1. Depth-0 Auto-Initialization
-        add_tree!(dt, SDTree{Tuple{}, Float64}();
+        add_layer!(dt, SDTree{Tuple{}, Float64}();
                   on_new_branch = key -> NaN,
                   clean_on_empty_branch = true)
 
-        add_tree!(dt, SDTree{Tuple{Symbol}, Float64}())
+        add_layer!(dt, SDTree{Tuple{Symbol}, Float64}())
 
         dt[:a] = 1.0 # Insert at depth 1
 

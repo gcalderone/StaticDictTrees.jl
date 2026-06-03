@@ -301,7 +301,7 @@ prune!(view(part_mass, (:Fermion,)), (:Quark,))
 
 While `SDTree` guarantees maximum performance by enforcing a fixed depth, real-world data may be heterogeneous. E.g., you might want to store high-level data at depth 1, sub-category details at depth 2, and raw data at depth 3.
 
-Version 0.2.0 of this package introduces the `DictTree` structure which acts as a collection of `SDTree` objects, each with its own fixed depth, and automatically routes method calls to the appropriate tree depending on the length of the `Tuple` key:
+Version 0.2.0 of this package introduces the `DictTree` structure which acts as a collection of overlapping `SDTree` objects, each layer associated with a fixed depth, and automatically routes method calls to the appropriate layer depending on the length of the `Tuple` key:
 
 ### Basic Usage
 
@@ -336,10 +336,10 @@ println(eng[(:Software, :Alice)])
 
 ### Accessing internal trees and labels
 
-As anticipated, the use of `DictTree` and `DictBranch` involve a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth tree you can use the `get_tree` method to retrieve the proper `SDTree` object natively, e.g.:
+As anticipated, the use of `DictTree` and `DictBranch` involve a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth tree you can use the `get_layer` method to retrieve the proper `SDTree` object natively, e.g.:
 ```julia
 dt[:Engineering]               # This requires a dynamic dispatch
-fast_tree = get_tree(dt, 1);   # Access the SDTree object with depth=1
+fast_tree = get_layer(dt, 1);  # Access the SDTree object with depth=1
 fast_tree[:Engineering]        # This is type-stable and O(1)
 ```
 
@@ -348,29 +348,29 @@ You may even associate a label to a specific depth, and use it retrieve the corr
 dt = DictTree()
 
 # Pre-allocate depth 1 and label it :Department
-add_tree!(dt, SDTree{Tuple{Symbol}, String}(); label=:Department)
+add_layer!(dt, SDTree{Tuple{Symbol}, String}(); label=:Department)
 
 # Retrieve the type-stable tree by its label
-dept_tree = get_tree(dt, :Department)
+dept_tree = get_layer(dt, :Department)
 dept_tree[(:Engineering,)] = "Main Tech Hub"
 
 # You can also check for existence using the label
-println(hasdepth(dt, :Department)) # true
+println(haslayer(dt, :Department)) # true
 ```
 
 ### Topology hooks: auto-initialization (`on_new_branch`)
 
-In case inserting a deep leaf node requires its parent categories to exist, you can provide an `on_new_branch` function to `add_tree!`. This will be automatically invoked whenever you insert a value at a deeper level to populate the missing intermediate parent trees with default values.
+In case inserting a deep leaf node requires its parent categories to exist, you can provide an `on_new_branch` function to `add_layer!`. This will be automatically invoked whenever you insert a value at a deeper level to populate the missing intermediate parent trees with default values.
 
 ```julia
 dt = DictTree()
 
 # Depth 1 Hook
-add_tree!(dt, SDTree{Tuple{Symbol}, String}();
+add_layer!(dt, SDTree{Tuple{Symbol}, String}();
           on_new_branch = x -> "Default Dept: $x")
 
 # Depth 2 Hook: receives the partial tuple (x is a 2-Tuple)
-add_tree!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
+add_layer!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
           on_new_branch = x -> "Default Team for $(x[1])")
 
 # We insert a leaf at depth 3...
@@ -396,7 +396,7 @@ Whenever you `delete!` or `prune!` an element, the shell checks if its parent me
 ```julia
 dt = DictTree()
 
-add_tree!(dt, SDTree{Tuple{Symbol}, String}();
+add_layer!(dt, SDTree{Tuple{Symbol}, String}();
           label=:Dept,
           on_new_branch = x -> "Auto-Dept: $x",
           clean_on_empty_branch = true) # Enable upward garbage collection!
@@ -432,7 +432,7 @@ println(haskey(dt, (:Engineering,)))                   # true (Parent is untouch
 
 ### Value types of internal trees
 
-By default, dynamically created trees use `Any` as their value type to allow for flexible, heterogeneous routing. If you want strict type safety, event-driven data hooks, and performance for a specific depth layer, you can manually inject a customized tree using `add_tree!`:
+By default, dynamically created trees use `Any` as their value type to allow for flexible, heterogeneous routing. If you want strict type safety, event-driven data hooks, and performance for a specific depth layer, you can manually inject a customized tree using `add_layer!`:
 
 ```julia
 dt = DictTree()
@@ -440,7 +440,7 @@ dt = DictTree()
 # Allocate a depth 1 tree to only accept Symbol keys and String values
 # Note: this internal tree can have its own on_insert/on_update/on_delete hooks too!
 my_strict_tree = SDTree{Tuple{Symbol}, String}()
-add_tree!(dt, my_strict_tree)
+add_layer!(dt, my_strict_tree)
 
 dt[(:Engineering,)] = "Main Tech Hub"
 # dt[(:Logistics,)] = 100.0 # This would now throw a MethodError!
