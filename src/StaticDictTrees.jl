@@ -40,6 +40,7 @@ struct SDTree{KT <: Tuple, VT, HT} <: AbstractSDTree{KT, VT}
     lookup::OrderedDict{KT, Int}
     viewid::Vector{Int}
     branch_lookup::Tuple
+    branch_viewids::Tuple
     hooks::HT # lifecycle hooks
 
 """
@@ -65,8 +66,14 @@ Constructs an `SDTree` with keys of type `KT` and leaf values of type `VT`.
                 branch_type = Tuple{types[i+1:end]...}
                 Dict{prefix_type, OrderedDict{branch_type, Int}}()
             end
+            bv = ntuple(N-1) do i
+                types = fieldtypes(KT)
+                prefix_type = Tuple{types[1:i]...}
+                Dict{prefix_type, Vector{Int}}()
+            end
         else
             bl = ()
+            bv = ()
         end
 
         hooks = (on_insert=on_insert,
@@ -74,7 +81,7 @@ Constructs an `SDTree` with keys of type `KT` and leaf values of type `VT`.
                  on_delete=on_delete)
         HT = typeof(hooks)
 
-        out = new{KT, VT, typeof(hooks)}(KT[], VT[], OrderedDict{KT, Int}(), Int[], bl, hooks)
+        out = new{KT, VT, typeof(hooks)}(KT[], VT[], OrderedDict{KT, Int}(), Int[], bl, bv, hooks)
         _populate_dict!(out, args...)
         return out
     end
@@ -113,6 +120,9 @@ function empty!(d::SDTree)
         end
         empty!(level_dict)
     end
+    for level_dict in d.branch_viewids
+        empty!(level_dict)
+    end
     return d
 end
 
@@ -129,6 +139,7 @@ A `@generated` function that fully unwinds a leaf `key` and registers its `I` in
     N = fieldcount(KT)
     N <= 1 && return :(nothing)
     exprs = Expr[]
+
     for depth in 1:(N-1)
         prefix_type = Tuple{fieldtypes(KT)[1:depth]...}
         branch_type = Tuple{fieldtypes(KT)[depth+1:end]...}
@@ -137,12 +148,20 @@ A `@generated` function that fully unwinds a leaf `key` and registers its `I` in
             prefix = $(Expr(:tuple, [:(key[$i]) for i in 1:depth]...))::$prefix_type
             suffix = $(Expr(:tuple, [:(key[$i]) for i in (depth+1):N]...))::$branch_type
 
-            level_dict = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
-            specific_dict = get(level_dict, prefix, nothing)
-            if isnothing(specific_dict)
-                level_dict[prefix] = OrderedDict{typeof(suffix), Int}(suffix => I)
+            bl_at_depth = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
+            specific_bl = get(bl_at_depth, prefix, nothing)
+            if isnothing(specific_bl)
+                bl_at_depth[prefix] = OrderedDict{$branch_type, Int}(suffix => I)
             else
-                specific_dict[suffix] = I
+                specific_bl[suffix] = I
+            end
+
+            bv_at_depth = d.branch_viewids[$depth]::Dict{$prefix_type, Vector{Int}}
+            specific_bv = get(bv_at_depth, prefix, nothing)
+            if isnothing(specific_bv)
+                bv_at_depth[prefix] = [I]
+            else
+                isempty(specific_bv)  ||  push!(specific_bv, I)
             end
         end)
     end
@@ -188,6 +207,7 @@ struct SDBranch{KT, PT, ST, VT, HT} <: AbstractSDTree{ST, VT}
     root::SDTree{KT, VT, HT}
     prefix::PT
     lookup::OrderedDict{ST, Int}
+    viewid::Vector{Int}
 
     function SDBranch(d::SDTree{KT, VT, HT}, prefix::PT) where {KT, VT, PT <: Tuple, HT}
         N = fieldcount(KT)
@@ -195,7 +215,7 @@ struct SDBranch{KT, PT, ST, VT, HT} <: AbstractSDTree{ST, VT}
         (M < N)  ||  throw(ArgumentError("Prefix length ($M) must be strictly less than key length ($N)."))
         if haskey(d.branch_lookup[M], prefix)
             ST = Tuple{fieldtypes(KT)[M+1:end]...}
-            new{KT, PT, ST, VT, HT}(d, prefix, d.branch_lookup[M][prefix])
+            new{KT, PT, ST, VT, HT}(d, prefix, d.branch_lookup[M][prefix], d.branch_viewids[M][prefix])
         else
             throw(KeyError(prefix))
         end
@@ -222,6 +242,7 @@ end
         return setindex!(v.root, value, $combined_tuple)
     end
 end
+
 setindex!(v::SDBranch{KT, PT, ST}, value, key::T) where {KT <: Tuple, PT <: Tuple, ST <: Tuple, T <: Tuple} = throw(ArgumentError("Invalid key type: $ST != $T"))
 setindex!(v::SDBranch{KT, PT, ST}, value, key)    where {KT <: Tuple, PT <: Tuple, ST <: Tuple} = setindex!(v, value, (key,))
 
@@ -307,12 +328,12 @@ end
 
 function values_view(v::SDBranch)
     is_stale(v)  &&  return @view v.root.values[Int[]]
-    if isempty(v.root.viewid)  ||  (length(v.root.viewid) != length(v.root.values))
-        empty!(v.root.viewid)
-        append!(v.root.viewid, values(v.root.lookup))
+
+    if isempty(v.viewid)  ||  (length(v.viewid) != length(v.lookup))
+        empty!(v.viewid)
+        append!(v.viewid, values(v.lookup))
     end
-    ids = collect(values(v.lookup))  # TODO: check performance
-    return view(v.root.values, ids)
+    return view(v.root.values, v.viewid)
 end
 
 function values_view(v::SDLeaf{KT, VT}) where {KT, VT}

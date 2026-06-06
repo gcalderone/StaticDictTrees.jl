@@ -2,6 +2,7 @@ import Base: delete!
 
 @generated function _update_branch_on_delete!(d::SDTree{KT}, key::KT, key_to_update::KT, new_pos::Int) where {KT <: Tuple}
     N = fieldcount(KT)
+    N <= 1 && return :(nothing)
     exprs = Expr[]
 
     for depth in 1:(N-1)
@@ -12,19 +13,30 @@ import Base: delete!
             prefix = $(Expr(:tuple, [:(key[$i]) for i in 1:depth]...))::$prefix_type
             suffix = $(Expr(:tuple, [:(key[$i]) for i in (depth+1):N]...))::$branch_type
 
-            lookups_at_depth = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
-            if haskey(lookups_at_depth, prefix)
-                br_lookup = lookups_at_depth[prefix]
-                delete!(br_lookup, suffix)
-                if isempty(br_lookup)
-                    delete!(lookups_at_depth, prefix)
+            bl_at_depth = d.branch_lookup[$depth]::Dict{$prefix_type, OrderedDict{$branch_type, Int}}
+            bv_at_depth = d.branch_viewids[$depth]::Dict{$prefix_type, Vector{Int}}
+
+            specific_bl = get(bl_at_depth, prefix, nothing)
+            if !isnothing(specific_bl)
+                delete!(specific_bl, suffix)
+
+                if isempty(specific_bl)
+                    delete!(bl_at_depth, prefix)
+                    delete!(bv_at_depth, prefix)
+                else
+                    specific_bv = get(bv_at_depth, prefix, nothing)
+                    isnothing(specific_bv) || empty!(specific_bv)
                 end
             end
 
             if new_pos > 0
-                prefix = $(Expr(:tuple, [:(key_to_update[$i]) for i in 1:depth]...))::$prefix_type
-                suffix = $(Expr(:tuple, [:(key_to_update[$i]) for i in (depth+1):N]...))::$branch_type
-                lookups_at_depth[prefix][suffix] = new_pos
+                swap_prefix = $(Expr(:tuple, [:(key_to_update[$i]) for i in 1:depth]...))::$prefix_type
+                swap_suffix = $(Expr(:tuple, [:(key_to_update[$i]) for i in (depth+1):N]...))::$branch_type
+
+                bl_at_depth[swap_prefix][swap_suffix] = new_pos
+
+                swap_bv = get(bv_at_depth, swap_prefix, nothing)
+                isnothing(swap_bv)  ||  empty!(swap_bv)
             end
         end)
     end
@@ -92,15 +104,15 @@ delete!(v::SDLeaf, key::Tuple{}) = (delete!(v.root, v.key); v)
 # ------------------------------------------------------------------------------
 function Base.delete!(dt::DictTree, key::Tuple)
     target_depth = length(key)
-    if haskey(dt.layers, target_depth)
+    if haslayer(dt, target_depth)
         delete!(dt.layers[target_depth].tree, key)
     end
 
     for d in (target_depth - 1):-1:0
-        if haskey(dt.layers, d)
+        if haslayer(dt, d)
             if dt.layers[d].clean_on_empty_branch
                 t = get_layer(dt, d)
-                prefix = key[1:d]
+                prefix = d == 0 ? () : key[1:d]
                 if haskey(t, prefix)
                     if length(view(dt, prefix)) == 1
                         delete!(t, prefix)

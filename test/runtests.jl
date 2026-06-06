@@ -710,4 +710,64 @@ using StaticDictTrees
         @test !haskey(dt, ())
         @test length(dt) == 0
     end
+
+    @testset "17. SDBranch values_view Lifecycle & Cache Invalidation" begin
+        # 1. Initialization
+        dt = SDTree{Tuple{Symbol, Int}, String}()
+        dt[:A, 1] = "A1"
+        dt[:B, 1] = "B1"
+        dt[:A, 2] = "A2"
+        dt[:C, 1] = "C1"
+
+        b_A = view(dt, (:A,))
+
+        # 2. Initial cache build
+        vv_A = values_view(b_A)
+        @test length(vv_A) == 2
+        @test collect(vv_A) == ["A1", "A2"]
+
+        # 3. In-place Update (SubArray automatic reflection)
+        # Since `vv_A` is a SubArray, updating the tree natively should instantly reflect
+        # in the view without needing to call `values_view(b_A)` again!
+        dt[:A, 1] = "A1_updated"
+        @test vv_A[1] == "A1_updated"
+        @test collect(values_view(b_A)) == ["A1_updated", "A2"]
+
+        # 4. Insertion INSIDE branch (Eager push to cache)
+        dt[:A, 3] = "A3"
+        @test length(values_view(b_A)) == 3
+        @test collect(values_view(b_A)) == ["A1_updated", "A2", "A3"]
+
+        # 5. Insertion OUTSIDE branch (Should not corrupt the :A cache)
+        dt[:D, 1] = "D1"
+        @test collect(values_view(b_A)) == ["A1_updated", "A2", "A3"]
+
+        # 6. Deletion INSIDE branch (Direct cache invalidation)
+        delete!(dt, (:A, 2))
+        @test length(values_view(b_A)) == 2
+        @test collect(values_view(b_A)) == ["A1_updated", "A3"]
+
+        # 7. Swap-With-Last Invalidation Test (The ultimate edge case)
+        # Let's add an element to :A so it becomes the VERY LAST element in the physical array.
+        dt[:A, 4] = "A4"
+
+        # Right now, (:B, 1) is sitting somewhere in the middle of the physical array.
+        # If we delete (:B, 1), the engine will SWAP the last element (:A, 4) into its place!
+        # Even though we deleted something OUTSIDE the branch, an element INSIDE the branch
+        # just had its physical index changed. The branch cache MUST invalidate!
+        delete!(dt, (:B, 1))
+
+        @test length(values_view(b_A)) == 3
+        # If cache invalidation worked perfectly, it will rebuild and map to the new physical indices
+        @test collect(values_view(b_A)) == ["A1_updated", "A3", "A4"]
+
+        # Sanity check: ensure the optimized view perfectly matches the standard iterator
+        @test collect(values_view(b_A)) == collect(values(b_A))
+
+        # 8. Total branch prune (Stale view fallback)
+        prune!(dt, (:A,))
+        @test is_stale(b_A) == true
+        @test length(values_view(b_A)) == 0
+        @test collect(values_view(b_A)) == String[]
+    end
 end
