@@ -51,7 +51,7 @@ function children(db::DictBranch)
     prefs = Set{Tuple}()
 
     for (d, layer) in db.dt.layers
-        if (d > M)  &&  hasbranch(layer.tree, db.prefix)
+        if (d > M)  &&  haspath(layer.tree, db.prefix)
             b = view(layer.tree, db.prefix)
             if d == M + 1
                 for suff in keys(b.lookup)

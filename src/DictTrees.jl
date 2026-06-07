@@ -90,7 +90,7 @@ end
 
 # DictTree helpers
 _sorted_trees(dt::DictTree, min_depth=0) = (dt.layers[d].tree for d in sort(collect(keys(dt.layers))) if d >= min_depth)
-_sorted_branches(dt::DictTree, prefix) = (view(t, prefix) for t in _sorted_trees(dt, length(prefix)) if hasbranch(t, prefix))
+_sorted_branches(dt::DictTree, prefix) = (view(t, prefix) for t in _sorted_trees(dt, length(prefix)) if haspath(t, prefix))
 
 # ------------------------------------------------------------------------------
 # DictTree AbstractDict Implementations
@@ -186,7 +186,7 @@ Returns `true` if the shell currently manages a tree or branch at the requested 
 """
 haslayer(dt::DictTree, depth::Int) = haskey(dt.layers, depth)
 haslayer(dt::DictTree, label::Symbol) = haskey(dt.labels, label)  &&  haskey(dt.layers, dt.labels[label])
-haslayer(db::DictBranch, depth::Int) = haslayer(db.dt, depth)  &&  hasbranch(get_layer(db.dt, depth), db.prefix)
+haslayer(db::DictBranch, depth::Int) = haslayer(db.dt, depth)  &&  haspath(get_layer(db.dt, depth), db.prefix)
 haslayer(db::DictBranch, label::Symbol) = haskey(db.dt.labels, label)  &&  haslayer(db, db.dt.labels[label])
 
 """

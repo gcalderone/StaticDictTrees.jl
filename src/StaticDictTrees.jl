@@ -3,7 +3,7 @@ module StaticDictTrees
 using DataStructures
 import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, view, sizehint!
 
-export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, values_view, hasbranch
+export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, values_view, haspath
 
 
 _default_insert(key, newval) = newval
@@ -495,25 +495,25 @@ end
 view(v::SDBranch{KT, PT, ST}, suffix) where {KT, PT, ST} = view(v, (suffix,))
 
 """
-    hasbranch(d::SDTree, prefix::Tuple)
+    haspath(d::SDTree, prefix::Tuple)
 
 Returns `true` if the given incomplete key (`prefix`) represents a valid, populated branch in the tree.
 """
-function hasbranch(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple}
+function haspath(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple}
     N = fieldcount(KT)
     M = length(prefix)
-    # The empty tuple () represents the root, which is always a valid branch
-    M == 0 && return true
-    M >= N && return false
+    (M == 0)  &&  (return true)  # the empty tuple () represents the root, which is always a valid branch
+    (M  > N)  &&  (return false)
+    (M == N)  &&  (return haskey(d, prefix))
     return haskey(d.branch_lookup[M], prefix)
 end
 
 """
-    hasbranch(v::SDBranch, suffix::Tuple)
+    haspath(v::SDBranch, suffix::Tuple)
 
 Returns `true` if the given `suffix` creates a valid, populated sub-branch within the current view.
 """
-hasbranch(v::SDBranch, suffix::Tuple) = hasbranch(v.root, (v.prefix..., suffix...))
+haspath(v::SDBranch, suffix::Tuple) = haspath(v.root, (v.prefix..., suffix...))
 
 include("DictTrees.jl")
 include("delete.jl")

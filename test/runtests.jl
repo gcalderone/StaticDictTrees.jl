@@ -771,7 +771,7 @@ using StaticDictTrees
         @test collect(values_view(b_A)) == String[]
     end
 
-    @testset "18. hasbranch edge cases and lifecycle" begin
+    @testset "18. haspath edge cases and lifecycle" begin
         # 1. Initialization (Depth 3 Tree)
         dt = SDTree{Tuple{Symbol, Symbol, Symbol}, Int}()
         dt[:Fermion, :Quark, :up] = 2
@@ -779,38 +779,45 @@ using StaticDictTrees
         dt[:Fermion, :Lepton, :electron] = 1
         dt[:Boson, :Gauge, :photon] = 0
 
-        # 2. Basic SDTree lookups
-        @test hasbranch(dt, (:Fermion,)) == true
-        @test hasbranch(dt, (:Fermion, :Quark)) == true
-        @test hasbranch(dt, (:Boson,)) == true
+        # 2. Intermediate Node Lookups (Branches)
+        @test haspath(dt, (:Fermion,)) == true
+        @test haspath(dt, (:Fermion, :Quark)) == true
+        @test haspath(dt, (:Boson,)) == true
 
-        # 3. Invalid SDTree lookups
-        @test hasbranch(dt, (:Fermion, :Gauge)) == false # Mixed up path
-        @test hasbranch(dt, (:Quark,)) == false          # Valid name, but wrong depth
+        # 3. Terminal Node Lookups (Leaves - The Option B behavior!)
+        @test haspath(dt, (:Fermion, :Quark, :up)) == true
+        @test haspath(dt, (:Boson, :Gauge, :photon)) == true
 
-        # 4. Boundary Conditions (The most important checks!)
-        @test hasbranch(dt, ()) == true                  # The root is ALWAYS a valid branch
-        @test hasbranch(dt, (:Fermion, :Quark, :up)) == false # FULL keys are leaves, not branches! (M == N)
-        @test hasbranch(dt, (:Fermion, :Quark, :up, :extra)) == false # Exceeds depth (M > N)
+        # 4. Invalid Lookups
+        @test haspath(dt, (:Fermion, :Gauge)) == false           # Mixed up path
+        @test haspath(dt, (:Quark,)) == false                    # Valid name, but wrong depth
+        @test haspath(dt, (:Fermion, :Quark, :strange)) == false # Non-existent leaf
 
-        # 5. SDBranch sub-lookups
+        # 5. Boundary Conditions
+        @test haspath(dt, ()) == true                               # The root is ALWAYS a valid path
+        @test haspath(dt, (:Fermion, :Quark, :up, :extra)) == false # Exceeds depth (M > N)
+
+        # 6. SDBranch sub-lookups
         fermions = view(dt, (:Fermion,))
-        @test hasbranch(fermions, ()) == true            # Root of the view itself
-        @test hasbranch(fermions, (:Quark,)) == true     # Valid sub-branch
-        @test hasbranch(fermions, (:Gauge,)) == false    # Belongs to Boson, not Fermion
-        @test hasbranch(fermions, (:Quark, :up)) == false # Leaf, not a branch!
+        @test haspath(fermions, ()) == true               # Root of the view itself
+        @test haspath(fermions, (:Quark,)) == true        # Valid intermediate sub-path
+        @test haspath(fermions, (:Gauge,)) == false       # Belongs to Boson, not Fermion
+        @test haspath(fermions, (:Quark, :up)) == true    # Valid terminal sub-path (leaf!)
+        @test haspath(fermions, (:Quark, :up, :x)) == false # Exceeds depth within view
 
-        # 6. Lifecycle & Mutation (Checking the internal `branch_lookup` cleanup)
+        # 7. Lifecycle & Mutation (Checking internal cleanup)
         dt[:Boson, :Scalar, :higgs] = 125
-        @test hasbranch(dt, (:Boson, :Scalar)) == true   # Branch appears instantly on insert
+        @test haspath(dt, (:Boson, :Scalar)) == true         # Path appears instantly on insert
+        @test haspath(dt, (:Boson, :Scalar, :higgs)) == true # Leaf path appears
 
-        # Delete the ONLY leaf in the :Scalar branch
+        # Delete the ONLY leaf in the :Scalar path
         delete!(dt, (:Boson, :Scalar, :higgs))
 
-        # The `delete!` engine should have completely wiped the empty branch metadata
-        @test hasbranch(dt, (:Boson, :Scalar)) == false
+        # The `delete!` engine should completely wipe both the leaf and the empty branch metadata
+        @test haspath(dt, (:Boson, :Scalar, :higgs)) == false # Leaf is gone
+        @test haspath(dt, (:Boson, :Scalar)) == false         # Empty structural branch is gone!
 
         # But the parent :Boson branch still has :Gauge, so it must survive!
-        @test hasbranch(dt, (:Boson,)) == true
+        @test haspath(dt, (:Boson,)) == true
     end
 end
