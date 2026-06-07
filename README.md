@@ -167,9 +167,14 @@ v = view(part_mass, (:Fermion, :Lepton))
 # Updating the view mutates the underlying tree data
 v[:electron_neutrino] = NaN
 
-# Check the original tree
+# Check value in the original tree
 part_mass[:Fermion, :Lepton, :electron_neutrino]
 # NaN
+```
+Attempting to create a view on a non-existing path will raise an error.  To check if the path exists use `haspath()`, e.g.
+```julia
+haspath(part_mass, (:Fermion, :Lepton))
+# true
 ```
 
 ### Stale views and safe fallbacks
