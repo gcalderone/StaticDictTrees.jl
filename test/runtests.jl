@@ -770,4 +770,47 @@ using StaticDictTrees
         @test length(values_view(b_A)) == 0
         @test collect(values_view(b_A)) == String[]
     end
+
+    @testset "18. hasbranch edge cases and lifecycle" begin
+        # 1. Initialization (Depth 3 Tree)
+        dt = SDTree{Tuple{Symbol, Symbol, Symbol}, Int}()
+        dt[:Fermion, :Quark, :up] = 2
+        dt[:Fermion, :Quark, :down] = 4
+        dt[:Fermion, :Lepton, :electron] = 1
+        dt[:Boson, :Gauge, :photon] = 0
+
+        # 2. Basic SDTree lookups
+        @test hasbranch(dt, (:Fermion,)) == true
+        @test hasbranch(dt, (:Fermion, :Quark)) == true
+        @test hasbranch(dt, (:Boson,)) == true
+
+        # 3. Invalid SDTree lookups
+        @test hasbranch(dt, (:Fermion, :Gauge)) == false # Mixed up path
+        @test hasbranch(dt, (:Quark,)) == false          # Valid name, but wrong depth
+
+        # 4. Boundary Conditions (The most important checks!)
+        @test hasbranch(dt, ()) == true                  # The root is ALWAYS a valid branch
+        @test hasbranch(dt, (:Fermion, :Quark, :up)) == false # FULL keys are leaves, not branches! (M == N)
+        @test hasbranch(dt, (:Fermion, :Quark, :up, :extra)) == false # Exceeds depth (M > N)
+
+        # 5. SDBranch sub-lookups
+        fermions = view(dt, (:Fermion,))
+        @test hasbranch(fermions, ()) == true            # Root of the view itself
+        @test hasbranch(fermions, (:Quark,)) == true     # Valid sub-branch
+        @test hasbranch(fermions, (:Gauge,)) == false    # Belongs to Boson, not Fermion
+        @test hasbranch(fermions, (:Quark, :up)) == false # Leaf, not a branch!
+
+        # 6. Lifecycle & Mutation (Checking the internal `branch_lookup` cleanup)
+        dt[:Boson, :Scalar, :higgs] = 125
+        @test hasbranch(dt, (:Boson, :Scalar)) == true   # Branch appears instantly on insert
+
+        # Delete the ONLY leaf in the :Scalar branch
+        delete!(dt, (:Boson, :Scalar, :higgs))
+
+        # The `delete!` engine should have completely wiped the empty branch metadata
+        @test hasbranch(dt, (:Boson, :Scalar)) == false
+
+        # But the parent :Boson branch still has :Gauge, so it must survive!
+        @test hasbranch(dt, (:Boson,)) == true
+    end
 end

@@ -51,20 +51,17 @@ function children(db::DictBranch)
     prefs = Set{Tuple}()
 
     for (d, layer) in db.dt.layers
-        if d > M
-            b = _safely_get_view(layer.tree, db.prefix)
-
-            if !isnothing(b)
-                if d == M + 1
-                    for suff in keys(b.lookup)
-                        push!(prefs, (db.prefix..., suff...))
-                    end
-                else
-                    next_dict = layer.tree.branch_lookup[M+1]
-                    for p in keys(next_dict)
-                        if p[1:M] == db.prefix
-                            push!(prefs, p)
-                        end
+        if (d > M)  &&  hasbranch(layer.tree, db.prefix)
+            b = view(layer.tree, db.prefix)
+            if d == M + 1
+                for suff in keys(b.lookup)
+                    push!(prefs, (db.prefix..., suff...))
+                end
+            else
+                next_dict = layer.tree.branch_lookup[M+1]
+                for p in keys(next_dict)
+                    if p[1:M] == db.prefix
+                        push!(prefs, p)
                     end
                 end
             end

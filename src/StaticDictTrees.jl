@@ -3,7 +3,7 @@ module StaticDictTrees
 using DataStructures
 import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, view, sizehint!
 
-export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, values_view
+export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, values_view, hasbranch
 
 
 _default_insert(key, newval) = newval
@@ -494,6 +494,26 @@ function view(v::SDBranch{KT, PT, ST}, suffix::Tuple) where {KT, PT, ST}
 end
 view(v::SDBranch{KT, PT, ST}, suffix) where {KT, PT, ST} = view(v, (suffix,))
 
+"""
+    hasbranch(d::SDTree, prefix::Tuple)
+
+Returns `true` if the given incomplete key (`prefix`) represents a valid, populated branch in the tree.
+"""
+function hasbranch(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple}
+    N = fieldcount(KT)
+    M = length(prefix)
+    # The empty tuple () represents the root, which is always a valid branch
+    M == 0 && return true
+    M >= N && return false
+    return haskey(d.branch_lookup[M], prefix)
+end
+
+"""
+    hasbranch(v::SDBranch, suffix::Tuple)
+
+Returns `true` if the given `suffix` creates a valid, populated sub-branch within the current view.
+"""
+hasbranch(v::SDBranch, suffix::Tuple) = hasbranch(v.root, (v.prefix..., suffix...))
 
 include("DictTrees.jl")
 include("delete.jl")
