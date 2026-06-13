@@ -20,9 +20,9 @@ Also, it accepts all the parameters typically used to build a dictionary, namely
 struct DictTree <: AbstractDict{Tuple, Any}
     layers::Dict{Int, TreeLayer}
     labels::Dict{Symbol, Int}
-
-    DictTree() = new(Dict{Int, TreeLayer}(), Dict{Symbol, Int}())
 end
+
+DictTree() = DictTree(Dict{Int, TreeLayer}(), Dict{Symbol, Int}())
 
 function DictTree(tree::SDTree; kws...)
     out = DictTree()

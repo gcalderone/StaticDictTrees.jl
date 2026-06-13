@@ -821,3 +821,59 @@ using StaticDictTrees
         @test haspath(dt, (:Boson,)) == true
     end
 end
+
+
+
+@testset "Serialization & Deserialization (TypedJSONExt)" begin
+    using TypedJSON
+
+    @testset "SDTree Round-Trip & Cache Rebuild" begin
+        # 1. Build a complex tree
+        dt = SDTree{Tuple{Symbol, Symbol, Symbol}, Int}()
+        dt[:Fermion, :Quark, :up] = 2
+        dt[:Fermion, :Quark, :down] = 4
+        dt[:Boson, :Gauge, :photon] = 0
+
+        # 3. Deserialize (Reconstruct)
+        reconstructed = TypedJSON.roundtrip(dt)
+
+        # 4. Verify Core Data Integrity
+        @test reconstructed[:Fermion, :Quark, :up] == 2
+        @test reconstructed[:Boson, :Gauge, :photon] == 0
+        @test length(reconstructed.keys) == 3
+
+        # 5. Verify Ephemeral Cache Rebuilding (The critical architectural test!)
+        # If the constructor correctly rebuilt `branch_lookup`, `haspath` will work.
+        @test haspath(reconstructed, (:Fermion, :Quark)) == true
+        @test haspath(reconstructed, (:Boson,)) == true
+
+        # If it correctly pre-allocated `branch_viewids`, the views will work.
+        quark_view = view(reconstructed, (:Fermion, :Quark))
+        @test length(quark_view) == 2
+        @test collect(values_view(quark_view)) == [2, 4]
+    end
+
+    @testset "DictTree Multi-Layer Round-Trip" begin
+        # 1. Build a dynamic multi-layer tree
+        dt = DictTree()
+        dt[:Alice] = 100                 # Depth 1
+        dt[:Engineering, :Software] = 50 # Depth 2
+        dt[:Engineering, :Hardware] = 30 # Depth 2
+
+        reconstructed = TypedJSON.roundtrip(dt)
+
+        # 4. Verify cross-layer integrity
+        @test reconstructed[:Alice] == 100
+        @test reconstructed[:Engineering, :Software] == 50
+        @test reconstructed[:Engineering, :Hardware] == 30
+
+        # 5. Verify layer structural methods
+        @test haslayer(reconstructed, 1) == true
+        @test haslayer(reconstructed, 2) == true
+        @test haslayer(reconstructed, 3) == false
+
+        # 6. Verify cross-layer branch tracking works on the deserialized object
+        eng_view = view(reconstructed, (:Engineering,))
+        @test length(eng_view) == 2
+    end
+end

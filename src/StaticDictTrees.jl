@@ -515,6 +515,41 @@ Returns `true` if the given `suffix` creates a valid, populated sub-branch withi
 """
 haspath(v::SDBranch, suffix::Tuple) = haspath(v.root, (v.prefix..., suffix...))
 
+"""
+    getKT(x::SDTree)
+    getKT(x::SDBranch)
+
+Returns the full Key Type (`KT`) of the given `SDTree` or the parent tree of an `SDBranch`.
+This represents the complete tuple type required to traverse from the absolute root down to a terminal leaf node.
+"""
+getKT(::SDTree{KT, VT}) where {KT, VT} = KT
+getKT(::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = KT
+
+"""
+    getVT(x::Union{SDTree, SDBranch})
+
+Returns the Value Type (`VT`) of the data stored at the leaves of the given `SDTree` or `SDBranch`.
+"""
+getVT(::SDTree{KT, VT}) where {KT, VT} = VT
+getVT(::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = VT
+
+"""
+    getPT(v::SDBranch)
+
+Returns the Prefix Type (`PT`) of an `SDBranch`.
+This represents the tuple type of the fixed, incomplete path that was used to create the current view.
+"""
+getPT(::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = PT
+
+"""
+    getST(v::SDBranch)
+
+Returns the Suffix Type (`ST`) of an `SDBranch`.
+This represents the tuple type of the remaining, localized keys required to traverse from the current branch down to a terminal leaf node.
+"""
+getST(::SDBranch{KT, PT, ST, VT}) where {KT, PT, ST, VT} = ST
+
+
 include("DictTrees.jl")
 include("delete.jl")
 include("prune.jl")
