@@ -243,8 +243,10 @@ end
     end
 end
 
-setindex!(v::SDBranch{KT, PT, ST}, value, key::T) where {KT <: Tuple, PT <: Tuple, ST <: Tuple, T <: Tuple} = throw(ArgumentError("Invalid key type: $ST != $T"))
-setindex!(v::SDBranch{KT, PT, ST}, value, key)    where {KT <: Tuple, PT <: Tuple, ST <: Tuple} = setindex!(v, value, (key,))
+
+setindex!(v::SDBranch{KT, PT, ST}, value, key::KT) where {KT <: Tuple, PT <: Tuple, ST <: Tuple} = setindex!(v.root, value, key)
+setindex!(v::SDBranch{KT, PT, ST}, value, key::T)  where {KT <: Tuple, PT <: Tuple, ST <: Tuple, T <: Tuple} = throw(ArgumentError("Invalid key type: $ST != $T"))
+setindex!(v::SDBranch{KT, PT, ST}, value, key)     where {KT <: Tuple, PT <: Tuple, ST <: Tuple} = setindex!(v, value, (key,))
 
 # ------------------------------------------------------------------------------
 # SDLeaf structure
@@ -443,6 +445,7 @@ getindex(d::SDTree{KT}, key::KT) where {KT <: Tuple} = d.values[d.lookup[key]]
 getindex(d::SDTree{KT}, key::T)  where {KT <: Tuple, T <: Tuple} = throw(ArgumentError("Invalid key type: $KT != $T"))
 getindex(d::SDTree{KT}, key)     where {KT <: Tuple} = getindex(d, (key,))
 
+getindex(v::SDBranch{KT, PT, ST}, key::KT) where {KT <: Tuple, PT <: Tuple, ST <: Tuple} = getindex(v.root, key)
 getindex(v::SDBranch{KT, PT, ST}, key::ST) where {KT <: Tuple, PT <: Tuple, ST <: Tuple} = v.root.values[v.lookup[key]]
 getindex(v::SDBranch{KT, PT, ST}, key::T)  where {KT <: Tuple, PT <: Tuple, ST <: Tuple, T <: Tuple} = throw(ArgumentError("Invalid key type: $ST != $T"))
 getindex(v::SDBranch{KT, PT, ST}, key)     where {KT <: Tuple, PT <: Tuple, ST <: Tuple} = getindex(v, (key,))

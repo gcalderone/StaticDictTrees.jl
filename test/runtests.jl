@@ -158,11 +158,13 @@ using StaticDictTrees
         @test length(v1) == 3
         @test haskey(v1, (1, 1))
         @test v1[(1, 1)] == "A"
+        @test v1[(1, 1, 1)] == "A"  # use SDTree key
 
         v11 = view(v1, (1,))
         @test v11 isa SDBranch
         @test length(v11) == 2
         @test v11[(2,)] == "B"
+        @test v11[(1, 1, 2,)] == "B" # use SDTree key
 
         l = view(t, (1, 1, 1))
         @test l isa SDLeaf
@@ -171,6 +173,8 @@ using StaticDictTrees
 
         v11[(2,)] = "B_mod"
         @test t[(1, 1, 2)] == "B_mod"
+        v11[(1, 1, 2,)] = "B_mod_mod" # use SDTree key
+        @test t[(1, 1, 2)] == "B_mod_mod"
 
         l[()] = "A_mod"
         @test t[(1, 1, 1)] == "A_mod"
