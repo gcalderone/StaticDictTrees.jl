@@ -125,8 +125,10 @@ function Base.empty!(db::DictBranch)
     return db
 end
 
-Base.view(dt::DictTree, prefix::Tuple) = isempty(prefix)  ?  dt  :  DictBranch(dt, prefix)
+Base.view(dt::DictTree, prefix::Tuple) = DictBranch(dt, prefix)
 Base.view(dt::DictTree, key) = view(dt, (key,))
+Base.view(db::DictBranch, suffix::Tuple) = view(db.dt, (db.prefix..., suffix...))
+Base.view(db::DictBranch, key) = view(db, (key,))
 
 function Base.getindex(db::DictBranch, key::Tuple)
     full_key = (db.prefix..., key...)

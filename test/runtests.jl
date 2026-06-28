@@ -683,7 +683,6 @@ using StaticDictTrees
         @test length(v) == 2 # 1 for (), 1 for (:A, :B, :C)
         @test v[()] == "Root"
         @test v[(:A, :B, :C)] == 1
-        @test v === dt # Empty prefix view on DictTree returns itself
 
         # Test SDTree view with empty tuple avoids BoundsError
         sdt = SDTree((:X, :Y) => 10)
@@ -879,5 +878,44 @@ end
         # 6. Verify cross-layer branch tracking works on the deserialized object
         eng_view = view(reconstructed, (:Engineering,))
         @test length(eng_view) == 2
+    end
+
+    @testset "DictBranch View Chaining" begin
+        # 1. Setup a multi-layer tree
+        dt = DictTree()
+        dt[:Engineering, :Software, :Alice] = 100
+        dt[:Engineering, :Software, :Bob] = 90
+        dt[:Engineering, :Hardware, :Charlie] = 80
+        dt[:Sales, :Domestic] = 50
+
+        # 2. First-level view
+        v1 = view(dt, :Engineering)
+        @test v1 isa DictBranch
+        @test v1.prefix == (:Engineering,)
+        @test v1[:Software, :Alice] == 100
+
+        # 3. Chain a second view (Single key)
+        v2 = view(v1, :Software)
+        @test v2 isa DictBranch
+        @test v2.prefix == (:Engineering, :Software)
+        @test v2[:Alice] == 100
+        @test v2[:Bob] == 90
+        @test !haskey(v2, :Charlie) # Charlie is in Hardware
+
+        # 4. Chain a view using tuples
+        v3 = view(v1, (:Hardware,))
+        @test v3.prefix == (:Engineering, :Hardware)
+        @test v3[:Charlie] == 80
+
+        # 5. Empty tuple suffix behavior
+        v4 = view(v2, ())
+        @test v4.prefix == (:Engineering, :Software) # The prefix remains unchanged
+
+        # 6. Verify mutation propagation from a chained view
+        v2[:Eve] = 95
+
+        # The chained view successfully routed the assignment all the way to the root
+        @test dt[:Engineering, :Software, :Eve] == 95
+        @test v1[:Software, :Eve] == 95
     end
 end
