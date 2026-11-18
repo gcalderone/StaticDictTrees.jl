@@ -1,94 +1,13 @@
 # StaticDictTrees.jl
 
----
+**StaticDictTrees.jl** provides `SDTree`, a dictionary whose keys are fixed-length `Tuple`s, interpreted as paths in a tree.  Besides the usual `AbstractDict` interface, it allows you to:
 
-**StaticDictTrees.jl** provides a data structure that maps fixed-length `Tuple` keys to values, just like a standard `Dict` would. Also, it treats the tuple as a hierarchical path where each element represents a specific step along a branch, thus allowing you to represent tree-like data structures, as well as to isolate specific branches when the provided `Tuple` key is incomplete. Finally, it allows you to access the elements as a single, contiguous vector with no need for nested loops.
+- take lightweight **views on branches**, i.e. on all the entries sharing a key prefix, and use them as dictionaries keyed by the remaining part of the key;
+- access the values of the whole tree, or of any branch, as an `AbstractVector` (`values_view`), with no need for nested loops or `collect`;
+- run **lifecycle hooks** on insertion, update and deletion;
+- delete entire branches at once (`prune!`).
 
-> [!WARNING]
-> Breaking Changes in v0.2.0
-> The `keys(::SDTree, level::Int)` or `branches` methods are no longer supported. The possibility to insert "metadata" using incomplete keys natively on `SDTree` is no longer provided since the same functionality can now be obtained dynamically using the `DictTree` and `DictBranch` structures.
-
-
-## Quick start
-```julia
-using StaticDictTrees
-
-# Create a SDTree representing the mass of elementary particles
-part_mass = SDTree((:Fermion, :Quark, :up)                 => 2.2,
-                   (:Fermion, :Quark, :down)               => 4.7,
-                   (:Fermion, :Quark, :strange)            => 96.0,
-                   (:Fermion, :Quark, :charm)              => 1270.0,
-                   (:Fermion, :Quark, :bottom)             => 4180.0,
-                   (:Fermion, :Quark, :top)                => 172760.0,
-                   (:Fermion, :Lepton, :electron)          => 0.510998,
-                   (:Fermion, :Lepton, :muon)              => 105.658,
-                   (:Fermion, :Lepton, :tau)               => 1776.86,
-                   (:Fermion, :Lepton, :electron_neutrino) => 0.0, # exact values are unknown
-                   (:Fermion, :Lepton, :muon_neutrino)     => 0.0,
-                   (:Fermion, :Lepton, :tau_neutrino)      => 0.0,
-                   (:Boson, :Gauge, :photon)               => 0.0,
-                   (:Boson, :Gauge, :gluon)                => 0.0,
-                   (:Boson, :Gauge, :W)                    => 80377.0,
-                   (:Boson, :Gauge, :Z)                    => 91187.6,
-                   (:Boson, :Scalar, :higgs)               => 125100.0)
-
-# Access using the entire key
-println(part_mass[:Fermion, :Lepton, :electron])
-# 0.510998
-
-# ... or create a view based on an incomplete key (branch)
-leptons = view(part_mass, (:Fermion, :Lepton))
-println(leptons[:electron])
-# 0.510998
-
-# Obtain a view on the internal values vector
-println(values_view(leptons))
-# [0.510998, 105.658, 1776.86, 0.0, 0.0, 0.0]
-```
-
-## Introduction
-
-The structures provided by **StaticDictTrees.jl** are:
-- `SDTree`: provides a fast, tree-like hierarchical data structure with an `AbstractDict` interface and `Tuple` as keys. The tree depth is equal to the length of the `Tuple` key and is fixed (hence "static" in the package name);
-- `SDBranch`: provides a type-stable view of a specific branch of an `SDTree` object, allowing updates to be seamlessly reflected in the original tree. An `SDBranch` is created by invoking the `view` function on an `SDTree` and providing an incomplete key representing the path to a branch.
-
-In order to remove the limitation of a fixed tree depth, v0.2.0 of the package introduces two new data structures:
-- `DictTree`: to manage a collection of static trees (namely `SDTree` objects) and to dynamically dispatch method calls depending on key length;
-- `DictBranch`: similar to `SDBranch`, it provides a view on a specific branch of a `DictTree`, allowing you to access / modify its values using an incomplete key prefix.
-
-While slightly slower than their static-depth counterparts (`SDTree` and `SDBranch`) due to the dynamic routing overhead, they allow you to insert and retrieve data at any arbitrary depth. On the other hand, there is no `values_view` defined for `DictTree` and `DictBranch` since their value vectors are scattered among different depths.
-
-
-### Features
-
-* $O(1)$ complexity for lookups, insertions, updates, and single-item deletions (`delete!`) for `SDTree` and `SDBranch`. Pruning a branch (`prune!`) scales proportionally to the number of items being removed;
-* Zero-allocation views on any branch of a static depth tree, with no need to allocate new dictionaries or copy data (`view`);
-* Programmable $O(1)$ data lifecycle hooks (`on_insert`, `on_update`, `on_delete`);
-* Provides a view to access the underlying contiguous (i.e., dense) `Vector` of values (`values_view`);
-* Availability of `delete!` and `prune!` methods to delete a single leaf value or an entire branch respectively;
-* Availability of `DictTree` and `DictBranch` structures to operate on trees with arbitrary depths with topological hooks (`on_new_branch`, `clean_on_empty_branch`);
-* Iterate all trees sequentially, i.e., with no nested loops;
-* Compatible with `AbstractDict` and `AbstractTrees` interfaces;
-* Dedicated `show()` methods allow you to easily display the tree structure in the REPL;
-* Docstrings available for all methods.
-
-
-### Use cases
-
-`StaticDictTrees` provides a suitable data structure in the following cases:
-
-- You need $O(1)$ performance on a fixed depth tree-like data structure, while still being able to quickly access data based on an incomplete key (branch);
-
-- You need to represent your tree data using a dictionary, but you also need to access the values in a vector without additional memory allocation due to (e.g.) a `collect` invocation;
-
-- You need something similar to a multi-dimensional sparse array whose indexing is based on a generic `Tuple`, rather than a tuple of integers;
-
-- You need to implement an in-memory database index based on a composite primary key;
-
-- You need a data structure to represent a generic tree dictionary with arbitrary depths, but you also need $O(1)$ performance on a specific fixed-depth branch.
-
-- You need a tree data structure with data lifecycle and/or topological hooks.
-
+The package also provides `DictTree`, a dictionary accepting tuple keys of *any* length, internally organized as a collection of `SDTree`s (one per key length).
 
 ## Installation
 
@@ -97,142 +16,46 @@ While slightly slower than their static-depth counterparts (`SDTree` and `SDBran
 pkg> add StaticDictTrees
 ```
 
-## Static dict tree creation
-
-Create an empty tree by specifying the fixed `Tuple` type to be used as keys. Any tuple can be used for the purpose:
+## Quick start
 
 ```julia
 using StaticDictTrees
 
-# Create an empty tree using `Tuple{Int, Symbol, String}` as key
-dt = SDTree{Tuple{Int, Symbol, String}, Float64}()
+# Mass of elementary particles (MeV), keyed by (family, group, name)
+part_mass = SDTree((:Fermion, :Quark,  :up)                => 2.2,
+                   (:Fermion, :Quark,  :down)              => 4.7,
+                   (:Fermion, :Quark,  :strange)           => 96.0,
+                   (:Fermion, :Quark,  :charm)             => 1270.0,
+                   (:Fermion, :Quark,  :bottom)            => 4180.0,
+                   (:Fermion, :Quark,  :top)               => 172760.0,
+                   (:Fermion, :Lepton, :electron)          => 0.510998,
+                   (:Fermion, :Lepton, :muon)              => 105.658,
+                   (:Fermion, :Lepton, :tau)               => 1776.86,
+                   (:Fermion, :Lepton, :electron_neutrino) => 0.0, # exact values are unknown
+                   (:Fermion, :Lepton, :muon_neutrino)     => 0.0,
+                   (:Fermion, :Lepton, :tau_neutrino)      => 0.0,
+                   (:Boson,   :Gauge,  :photon)            => 0.0,
+                   (:Boson,   :Gauge,  :gluon)             => 0.0,
+                   (:Boson,   :Gauge,  :W)                 => 80377.0,
+                   (:Boson,   :Gauge,  :Z)                 => 91187.6,
+                   (:Boson,   :Scalar, :higgs)             => 125100.0)
 
-# Insert data using standard `Dict` syntax:
-dt[1, :server, "latency"] = 12.5
-dt[1, :server, "uptime"]  = 99.9
-dt[2, :local,  "cache"]   = 2.1
+# Access using the entire key
+println(part_mass[:Fermion, :Lepton, :electron])
+# 0.510998
+
+# ... or create a view on a branch, using an incomplete key (prefix)
+leptons = view(part_mass, (:Fermion, :Lepton))
+println(leptons[:electron])
+# 0.510998
+
+# Obtain all the values in a branch as a vector view, in insertion order
+println(values_view(leptons))
+# [0.510998, 105.658, 1776.86, 0.0, 0.0, 0.0]
 ```
 
-If you plan to insert a large number of entries, you can improve performance and reduce memory allocations by pre-allocating the internal memory using `sizehint!`:
-```julia
-sizehint!(dt, 1_000_000)
+The REPL displays the tree structure (children are sorted for display; iteration follows insertion order):
 ```
-
-### Programmable data lifecycle
-
-`SDTree` allows you to trigger custom functions during key-value insertions, updates, and deletions.  You can configure them using keyword arguments when constructing the tree:
-* `on_insert`: Triggers when a *new* key is added. Signature: `f(key, new_value) -> value_to_store`.
-* `on_update`: Triggers when an *existing* key is assigned a new value. Signature: `f(key, old_value, new_value) -> value_to_store`.
-* `on_delete`: Triggers right *before* a key is deleted. Signature: `f(key, value_about_to_be_deleted)`.
-
-
-**Example: A Self-Validating Experimental Data Accumulator**
-```julia
-# Track accumulated energy depositions in a particle detector
-sensor_log = SDTree{Tuple{Symbol, Int}, Float64}(
-    # 1. Reject physically invalid measurements on insertion
-    on_insert = (k, v) -> v >= 0.0 ? v : throw(ArgumentError("Energy cannot be negative!")),
-
-    # 2. Add incoming signals to the existing total (accumulator pattern)
-    on_update = (k, old_v, new_v) -> old_v + new_v,
-
-    # 3. Log a calibration warning when a sensor node is purged
-    on_delete = (k, v) -> println("WARNING: Sensor $k removed. Final accumulated energy: $v MeV")
-)
-
-# Attempt initialization with a negative value:
-# sensor_log[:Calorimeter, 1] = -1
-# Note: this would raise an error!
-
-# Initial particle hit on the Calorimeter, sensor ID 1
-sensor_log[:Calorimeter, 1] = 500.0  # Calls on_insert
-
-# Subsequent hit on the same sensor
-sensor_log[:Calorimeter, 1] = 120.0  # Calls on_update
-
-println(sensor_log[:Calorimeter, 1])
-# 620.0
-
-delete!(sensor_log, (:Calorimeter, 1)) # Calls on_delete
-# Prints: "WARNING: Sensor (:Calorimeter, 1) removed. Final accumulated energy: 620.0 MeV"
-```
-
-## Zero-allocation views
-
-A view on a `SDTree` is a lightweight, zero-allocation object holding a direct memory pointer to a specific subset of the parent tree's cache.
-```julia
-# Take a view on a branch
-v = view(part_mass, (:Fermion, :Lepton))
-
-# Updating the view mutates the underlying tree data
-v[:electron_neutrino] = NaN
-
-# Check value in the original tree
-part_mass[:Fermion, :Lepton, :electron_neutrino]
-# NaN
-```
-Attempting to create a view on a non-existing path will raise an error.  To check if the path exists use `haspath()`, e.g.
-```julia
-haspath(part_mass, (:Fermion, :Lepton))
-# true
-```
-
-### Stale views and safe fallbacks
-
-`StaticDictTrees` views hold direct memory references to the parent tree.
-
-When the underlying data is removed from the parent tree by means of `delete!`, `prune!` or `empty!` the view safely transitions into a **stale** state, namely a state in which the stale view acts as an empty collection (length 0, empty iterators) and prevents unhandled memory errors. You can manually check this state using the `is_stale()` function:
-
-```julia
-# Create a view
-v = view(part_mass, (:Boson, :Scalar))
-
-# Destroy the data from the parent tree
-prune!(part_mass, (:Boson, :Scalar))
-
-# The view is now safely stale
-println(is_stale(v))
-# true
-
-println(length(v))
-# 0
-
-# Restore the deleted entry
-part_mass[:Boson, :Scalar, :Higgs] = 4.0
-
-# The view is still stale
-println(is_stale(v))
-# true
-```
-
-
-## `AbstractDict` and `AbstractTrees` integration
-
-All `StaticDictTrees` data structures inherit from `AbstractDict` and implement all the relevant functionalities, i.e.:
-```julia
-# Iterate over all leaves in the same order they were inserted
-for (key, val) in part_mass
-    println("Path: $key, Value: $val")
-end
-
-# Convert to a standard dictionary
-Dict(part_mass)
-
-# Get all leaf keys
-keys(part_mass)
-
-# Get all leaf values (returns a lazy iterator, just like a standard Dict)
-values(part_mass)
-
-# Get all leaf values as a zero-allocation `SubArray` view preserving insertion order
-values_view(part_mass)
-
-# Print number of explicitly assigned leaf entries
-length(part_mass)
-```
-
-Also, `StaticDictTrees.jl` implements the `AbstractTrees.jl` interface to exploit all its functionalities. E.g. the automatic display looks as follows:
-```julia
 julia> part_mass
 SDTree{Tuple{Symbol, Symbol, Symbol}, Float64} with 17 entries:
 (root)
@@ -243,7 +66,7 @@ SDTree{Tuple{Symbol, Symbol, Symbol}, Float64} with 17 entries:
 │  │  ├─ :gluon => 0.0
 │  │  └─ :photon => 0.0
 │  └─ :Scalar
-│     └─ :Higgs => 4.0
+│     └─ :higgs => 125100.0
 └─ :Fermion
    ├─ :Lepton
    │  ├─ :electron => 0.510998
@@ -261,211 +84,381 @@ SDTree{Tuple{Symbol, Symbol, Symbol}, Float64} with 17 entries:
       └─ :up => 2.2
 ```
 
+## Data structures
 
+| Type | Description |
+|------|-------------|
+| `SDTree{KT, VT}` | Dictionary with keys of the fixed tuple type `KT` and values of type `VT`. The tree depth is the length of `KT`, and is fixed (hence "static"). |
+| `SDBranch` | View on the entries of an `SDTree` sharing a given prefix, created with `view(tree, prefix)`. It is an `AbstractDict` keyed by the remaining part of the key (suffix). |
+| `SDLeaf` | View on a single entry, created with `view(tree, full_key)`. It behaves as a dictionary with a single key: `()`. |
+| `DictTree` | Dictionary accepting tuple keys of any length. Each key length is handled by a separate `SDTree` (a *layer*). |
+| `DictBranch` | View on the entries of a `DictTree` sharing a given prefix, across all layers. |
 
-## Tree navigation and utilities
+## When to use it
 
-`StaticDictTrees` provides several utility functions to navigate the hierarchical structure, inspect paths, and remove specific elements.
+`StaticDictTrees` is suitable when:
+- your data is naturally indexed by a composite key (e.g. `(detector, channel, run)`), and you often need to work on all the entries sharing a prefix (e.g. all channels of a detector);
+- you need something similar to a multi-dimensional sparse array, indexed by arbitrary values rather than integers;
+- you need to process the values of a branch as a vector (e.g. `sum(values_view(branch))`);
+- you need lifecycle hooks (validation, accumulation, logging) on a dictionary;
+- you need a tree with heterogeneous depths (`DictTree`), with automatic creation and cleanup of intermediate nodes.
 
-Using the `part_mass` tree from our first example, here is how you can use `depth`, `is_leaf_level`, `keys`, `parent`, and the standard `delete!` function:
+Alternatives you may want to consider:
+- a plain `Dict` with tuple keys is faster and uses much less memory, but branch access requires a full scan;
+- nested `Dict`s (`Dict{Symbol, Dict{Symbol, ...}}`) provide cheap branch access, but no flat iteration, no flat value vector, and require manual creation/cleanup of the intermediate levels;
+- a `DataFrame` with `groupby` is better suited for columnar data, analytical queries and very large datasets;
+- [Dictionaries.jl](https://github.com/andyferris/Dictionaries.jl) provides insertion-ordered dictionaries with efficient vector-like value access, but no prefix views.
 
-```julia
-# Get the fixed depth of the tree (the length of the tuple keys)
-println(depth(part_mass))
-# Output: 3
+## Creating a tree
 
-# Check if a structure points to a final value, namely if it can be indexed by a scalar value
-println(is_leaf_level(part_mass)) # false
-println(is_leaf_level(view(part_mass, (:Fermion,)))) # false
-println(is_leaf_level(view(part_mass, (:Fermion, :Quark)))) # true
-println(view(part_mass, (:Fermion, :Quark))[:up]) # the view is at leaf level, hence we can use a scalar value as key
-
-# Check for explicit key existence
-haskey(part_mass, (:Fermion, :Lepton, :electron)) # true
-
-# Navigate upward from a specific view
-quarks = view(part_mass, (:Fermion, :Quark))
-fermions = parent(quarks)
-
-# Access to root SDTree structure
-part_mass === root(quarks)
-
-# Remove a specific leaf entry
-# (Note: to remove an entire branch at once, use `prune!` instead)
-delete!(part_mass, (:Boson, :Scalar, :higgs))
-
-# Remove an entire branch from the tree efficiently
-prune!(part_mass, (:Boson,))
-
-# Remove a branch from within a view
-prune!(view(part_mass, (:Fermion,)), (:Quark,))
-```
-
-
-## Variable depth trees with `DictTree` and `DictBranch`
-
-While `SDTree` guarantees maximum performance by enforcing a fixed depth, real-world data may be heterogeneous. E.g., you might want to store high-level data at depth 1, sub-category details at depth 2, and raw data at depth 3.
-
-Version 0.2.0 of this package introduces the `DictTree` structure which acts as a collection of overlapping `SDTree` objects, each layer associated with a fixed depth, and automatically routes method calls to the appropriate layer depending on the length of the `Tuple` key:
-
-### Basic Usage
+Create an empty tree by specifying the key and value types.  Any tuple type can be used as key:
 
 ```julia
 using StaticDictTrees
 
-# Create an empty dynamic tree
-dt = DictTree()
+tree = SDTree{Tuple{Int, Symbol, String}, Float64}()
 
-# Insert data at various depths!
-dt[(:Engineering,)] = "Main Tech Hub"               # depth 1
-dt[(:Engineering, :Software)] = "Backend Team"      # depth 2
-dt[(:Engineering, :Software, :Alice)] = 95000.0     # depth 3
+# Insert data using the standard `Dict` syntax (the brackets of the key tuple can be omitted)
+tree[1, :server, "latency"] = 12.5
+tree[1, :server, "uptime"]  = 99.9
+tree[2, :local,  "cache"]   = 2.1
+tree[(2, :local, "hits")]   = 1e4
 ```
+
+A tree can also be created from an existing dictionary, from a list of pairs (as in the quick start), or from two vectors of keys and values:
+
+```julia
+copy_of_tree = SDTree(tree)
+tree2 = SDTree([(1, :a), (2, :b)], [10, 20])
+```
+
+Keys must have exactly the declared type: unlike `Dict`, no conversion is performed, and keys of a different type (e.g. an `Int32` where an `Int` is expected) raise an `ArgumentError` with `getindex`, `setindex!` and `delete!`, while `haskey` and `get` simply report the key as missing.  Values are converted to the value type as usual.
+
+If you plan to insert a large number of entries, you can reduce reallocations with `sizehint!`:
+```julia
+sizehint!(tree, 1_000_000)
+```
+
+## Views
+
+`view(tree, prefix)` returns an `SDBranch` on the entries whose key starts with `prefix`.  Branches are dictionaries themselves, and any modification is reflected in the parent tree:
+
+```julia
+leptons = view(part_mass, (:Fermion, :Lepton))
+println(length(leptons))
+# 6
+
+# Keys of a branch are the remaining part of the full key (the brackets can be omitted for 1-tuples)
+println(leptons[(:muon,)] == leptons[:muon] == part_mass[:Fermion, :Lepton, :muon])
+# true
+
+# Updating the view mutates the underlying tree
+leptons[:electron_neutrino] = 1e-6
+println(part_mass[:Fermion, :Lepton, :electron_neutrino])
+# 1.0e-6
+
+# Views can be nested
+fermions = view(part_mass, (:Fermion,))
+quarks   = view(fermions, (:Quark,))
+println(quarks[:top])
+# 172760.0
+
+# A complete key returns an `SDLeaf`, a view on a single entry, accessed with the empty tuple
+top = view(part_mass, (:Fermion, :Quark, :top))
+println(top[()])
+# 172760.0
+```
+
+A branch view also accepts the full keys of the root tree; note that such keys are *not* restricted to the branch prefix: `quarks[(:Boson, :Gauge, :W)]` returns the mass of the W boson.
+
+Creating a view on a non-existing path raises a `KeyError`.  To check whether a path exists, use `haspath()`:
+```julia
+println(haspath(part_mass, (:Fermion, :Lepton)))
+# true
+println(haspath(part_mass, (:Fermion, :Gluon)))
+# false
+```
+
+### Values as vectors (`values_view`)
+
+All the values of an `SDTree` are stored in a single `Vector`.  `values_view` returns a `SubArray` on that vector, containing the values of the tree or branch in insertion order:
+
+```julia
+quark_masses = values_view(view(part_mass, (:Fermion, :Quark)))
+println(sum(quark_masses))
+# 178312.9
+
+# The view is writable
+quark_masses .*= 1e-3   # convert to GeV
+println(part_mass[:Fermion, :Quark, :top])
+# 172.76
+```
+
+Note that:
+- the returned `SubArray` accesses the underlying dense `Vector` through a vector of positions, hence it is not itself a contiguous block (e.g. it can't be passed to functions requiring a `StridedArray`);
+- insertions and updates are reflected in a previously obtained `values_view`. A deletion, however, invalidates it (it becomes empty): call `values_view` again to obtain an updated one. After deletions, the first `values_view` call rebuilds the list of positions, which costs O(n) in the size of the tree or branch.
+
+### Stale views
+
+A view holds a direct reference to the internal structures of its parent tree.  When the data it refers to is removed, the view becomes **stale**: it behaves as an empty collection (`length` is 0, iteration yields nothing, `values_view` is empty), and `is_stale()` returns `true`:
+
+```julia
+pm = SDTree(part_mass)   # a copy, to keep `part_mass` unchanged
+v = view(pm, (:Boson, :Scalar))
+println(is_stale(v))
+# false
+
+prune!(pm, (:Boson, :Scalar))
+println(is_stale(v), "  ", length(v))
+# true  0
+
+# Re-inserting data does NOT revive a stale branch view: create a new one instead
+pm[:Boson, :Scalar, :higgs] = 125100.0
+println(is_stale(v), "  ", is_stale(view(pm, (:Boson, :Scalar))))
+# true  false
+```
+
+Precisely:
+- an `SDBranch` becomes stale when all the entries of its branch are removed (deleting only some of them keeps it valid), and stays stale afterwards;
+- an `SDLeaf` is stale as long as its key is missing, i.e. it becomes valid again if the key is re-inserted;
+- mutating operations on a stale view (`setindex!`, `delete!`, `prune!`) are still forwarded to the root tree using the view prefix, although a stale branch view does not see their results.
+
+## Lifecycle hooks
+
+`SDTree` can invoke user-defined functions when entries are inserted, updated or deleted.  They are configured with keyword arguments in the constructor:
+* `on_insert`: invoked when a *new* key is added. Signature: `f(key, new_value) -> value_to_store`;
+* `on_update`: invoked when an *existing* key is assigned a new value. Signature: `f(key, old_value, new_value) -> value_to_store`;
+* `on_delete`: invoked right *before* an entry is removed. Signature: `f(key, value_about_to_be_deleted)`.
+
+**Example: a self-validating accumulator**
+```julia
+# Track the energy deposited in the sensors of a particle detector
+sensor_log = SDTree{Tuple{Symbol, Int}, Float64}(
+    # 1. Reject physically invalid measurements on insertion
+    on_insert = (k, v) -> v >= 0.0 ? v : throw(ArgumentError("Energy cannot be negative!")),
+
+    # 2. Add incoming signals to the existing total (accumulator pattern)
+    on_update = (k, old_v, new_v) -> old_v + new_v,
+
+    # 3. Log a message when a sensor is removed
+    on_delete = (k, v) -> println("Sensor $k removed. Final accumulated energy: $v MeV")
+)
+
+# sensor_log[:Calorimeter, 1] = -1.0   # would throw an ArgumentError, leaving the tree unchanged
+
+sensor_log[:Calorimeter, 1] = 500.0  # calls on_insert
+sensor_log[:Calorimeter, 1] = 120.0  # calls on_update
+
+println(sensor_log[:Calorimeter, 1])
+# 620.0
+
+delete!(sensor_log, (:Calorimeter, 1)) # calls on_delete
+# Sensor (:Calorimeter, 1) removed. Final accumulated energy: 620.0 MeV
+```
+
+Note that:
+- the value stored may differ from the assigned one: as for any Julia assignment, `tree[k] = v` returns `v`, not the stored value. Generic functions relying on `setindex!` (`merge!`, `get!`, the constructors, ...) go through the hooks as well;
+- if `on_insert` or `on_update` throw an exception (or return a value which can not be converted to the value type), the tree is left unchanged. If `on_delete` throws, the entry is not removed;
+- `on_delete` is invoked by `delete!`, `pop!`, `prune!` and `empty!` on a branch or leaf view, but **not** by `empty!(::SDTree)`, which resets the whole tree in one go;
+- hooks are not preserved by functions which create a new dictionary: e.g. `copy(tree)` and `merge(tree, ...)` return a plain `Dict` (generic `AbstractDict` behavior), and `SDTree(tree)` returns a tree without hooks.
+
+## `AbstractDict` and `AbstractTrees` integration
+
+All data structures are subtypes of `AbstractDict`, and support the usual dictionary functions:
+```julia
+# Iterate over all entries in insertion order
+for (key, val) in part_mass
+    println("Path: $key, Value: $val")
+end
+
+length(part_mass)                       # number of entries
+keys(part_mass)                         # iterator over the keys
+values(part_mass)                       # iterator over the values
+haskey(part_mass, (:Boson, :Gauge, :W)) # true
+get(part_mass, (:Boson, :Gauge, :X), NaN)
+Dict(part_mass)                         # convert to a standard dictionary
+filter(p -> p.second > 1000, part_mass) # returns a Dict
+```
+
+The `AbstractTrees.jl` interface is also implemented, e.g. `AbstractTrees.children(part_mass)` returns the views on the first-level branches, and `print_tree` is used to display trees in the REPL.
+
+## Tree navigation and utilities
+
+```julia
+pm = SDTree(part_mass)
+
+println(depth(pm))
+# 3
+
+# Is a structure one level above the leaves, i.e. can it be indexed by a scalar?
+println(is_leaf_level(pm))                               # false
+println(is_leaf_level(view(pm, (:Fermion,))))            # false
+println(is_leaf_level(view(pm, (:Fermion, :Quark))))     # true
+
+# Navigate upward
+quarks = view(pm, (:Fermion, :Quark))
+fermions = parent(quarks)                # an SDBranch with prefix (:Fermion,)
+println(root(quarks) === pm)             # true
+
+# Remove a single entry
+delete!(pm, (:Boson, :Scalar, :higgs))
+println(pop!(pm, (:Boson, :Gauge, :W)))  # remove and return
+# 80377.0
+
+# Remove an entire branch
+prune!(pm, (:Boson,))
+
+# Remove a branch from within a view
+prune!(view(pm, (:Fermion,)), (:Quark,))
+
+println(length(pm))   # only the leptons are left
+# 6
+```
+
+## Variable depth trees with `DictTree` and `DictBranch`
+
+`SDTree` requires all keys to have the same length.  Real-world data may be heterogeneous: e.g. you may want to store department data at depth 1, team data at depth 2 and employee data at depth 3.  A `DictTree` accepts keys of any length, and routes each operation to an internal `SDTree` (a *layer*) according to the key length:
+
+```julia
+using StaticDictTrees
+
+dt = DictTree()
+dt[(:Engineering,)]                   = "Main Tech Hub"  # depth 1
+dt[(:Engineering, :Software)]         = "Backend Team"   # depth 2
+dt[(:Engineering, :Software, :Alice)] = 95000.0          # depth 3
+dt[(:Engineering, :Software, :Bob)]   = 90000.0          # depth 3
+
+println(length(dt))
+# 4
+```
+
+Iteration visits the layers in order of increasing depth, and each layer in insertion order.
+
+Since the key type of a `DictTree` is not fixed, every operation involves a dynamic dispatch, hence it is slower than the corresponding operation on an `SDTree`.  Layers created automatically use `Any` as key element and value types: for type-stable access, create the layers explicitly with `add_layer!` (see below).  Also, `values_view` is not available, since values are scattered among layers.
 
 ### Multi-layer views (`DictBranch`)
 
-Just like `SDTree`, you can obtain a `view` of a `DictTree` to access elements using incomplete keys, and to reflect any modification directly into the parent tree.
+A `view` on a `DictTree` spans all layers. Unlike `SDTree` views, it can be created on any prefix (even a non-existing one) and it is always up to date:
 
 ```julia
-# Take a view on the Engineering department
 eng = view(dt, (:Engineering,))
 
-# Access the exact match (the branch's own data) via the empty tuple
+# The entry exactly matching the prefix is accessed with the empty tuple
 println(eng[()])
-# Output: "Main Tech Hub"
+# Main Tech Hub
 
-# Access deeper elements using relative suffix keys
+# Deeper entries are accessed with the remaining part of the key
 println(eng[(:Software, :Alice)])
-# Output: 95000.0
+# 95000.0
+
+println(length(eng))
+# 4
 ```
 
-### Accessing internal trees and labels
+### Accessing the internal trees and labels
 
-As anticipated, the use of `DictTree` and `DictBranch` involve a dynamic dispatch on the key length, or equivalently on the tree depth. To gain $O(1)$ performance on a specific depth tree you can use the `get_layer` method to retrieve the proper `SDTree` object natively, e.g.:
+Use `get_layer` to retrieve the `SDTree` handling a specific depth, and access it directly, avoiding the routing overhead:
 ```julia
-dt[:Engineering]               # This requires a dynamic dispatch
-fast_tree = get_layer(dt, 1);  # Access the SDTree object with depth=1
-fast_tree[:Engineering]        # This is type-stable and O(1)
+employees = get_layer(dt, 3)             # the SDTree with depth 3
+println(employees[:Engineering, :Software, :Alice])
+# 95000.0
 ```
 
-You may even associate a label to a specific depth, and use it retrieve the corresponding `SDTree`:
+A layer can also be created explicitly, with a specific key and value type (layers created automatically use `Any` for both), and optionally a label:
 ```julia
 dt = DictTree()
-
-# Pre-allocate depth 1 and label it :Department
 add_layer!(dt, SDTree{Tuple{Symbol}, String}(); label=:Department)
 
-# Retrieve the type-stable tree by its label
-dept_tree = get_layer(dt, :Department)
-dept_tree[(:Engineering,)] = "Main Tech Hub"
+dept = get_layer(dt, :Department)
+dept[:Engineering] = "Main Tech Hub"
+println(dt[(:Engineering,)])
+# Main Tech Hub
 
-# You can also check for existence using the label
-println(haslayer(dt, :Department)) # true
-
-# To inspect all assigned labels and their corresponding depths, use `getlabels`
+println(haslayer(dt, :Department))
+# true
 println(getlabels(dt))
 # Dict(:Department => 1)
+
+# The layer only accepts its own key and value types
+# dt[(:Logistics,)] = 100.0   # would throw a MethodError (100.0 is not a String)
 ```
 
-### Topology hooks: auto-initialization (`on_new_branch`)
+A layer can be an `SDTree` with its own lifecycle hooks.
 
-In case inserting a deep leaf node requires its parent categories to exist, you can provide an `on_new_branch` function to `add_layer!`. This will be automatically invoked whenever you insert a value at a deeper level to populate the missing intermediate parent trees with default values.
+### Topology hooks: automatic creation of parent nodes (`on_new_branch`)
+
+The `on_new_branch` keyword of `add_layer!` provides a function returning a default value for the nodes of that layer.  It is invoked whenever an entry is inserted at a deeper level, and the corresponding node in this layer does not exist yet (existing values are never overwritten).  The function receives the node key: a scalar for depth 1, a tuple otherwise (`()` for depth 0).
 
 ```julia
 dt = DictTree()
-
-# Depth 1 Hook
 add_layer!(dt, SDTree{Tuple{Symbol}, String}();
-          on_new_branch = x -> "Default Dept: $x")
-
-# Depth 2 Hook: receives the partial tuple (x is a 2-Tuple)
+           on_new_branch = x -> "Default Dept: $x")          # x is a Symbol
 add_layer!(dt, SDTree{Tuple{Symbol, Symbol}, String}();
-          on_new_branch = x -> "Default Team for $(x[1])")
+           on_new_branch = x -> "Default Team for $(x[1])")  # x is a 2-tuple
 
-# We insert a leaf at depth 3...
 dt[(:Engineering, :Backend, :Alice)] = 95000.0
 
-# ...and the intermediate layers are automatically populated!
 println(dt[(:Engineering,)])
-# Output: "Default Dept: Engineering"
-
+# Default Dept: Engineering
 println(dt[(:Engineering, :Backend)])
-# Output: "Default Team for Engineering"
+# Default Team for Engineering
 ```
 
-**Note:** The `on_new_branch` hook does not overwrite existing values. It only triggers if the value at the specific structural depth *does not already exist*.
+### Topology hooks: automatic cleanup of parent nodes (`clean_on_empty_branch`)
 
-
-### Topology hooks: auto-cleaning (`clean_on_empty_branch`)
-
-When working with hierarchical data, deleting all leaves of a branch can leave orphaned parent metadata behind. By setting `clean_on_empty_branch = true` when adding a tree layer, `DictTree` will automatically perform "upward garbage collection".
-
-Whenever you `delete!` or `prune!` an element, the shell checks if its parent metadata is now the *only* item remaining in the branch. If it is, the parent is automatically deleted as well!
+When `clean_on_empty_branch = true` is set for a layer, a node in that layer is automatically deleted when an actual deletion (`delete!` or `prune!`) leaves it with no descendants in any deeper layer:
 
 ```julia
 dt = DictTree()
-
 add_layer!(dt, SDTree{Tuple{Symbol}, String}();
-          label=:Dept,
-          on_new_branch = x -> "Auto-Dept: $x",
-          clean_on_empty_branch = true) # Enable upward garbage collection!
+           on_new_branch = x -> "Auto-Dept: $x",
+           clean_on_empty_branch = true)
 
-# Insert a deep leaf (auto-initialization creates the parents downward)
 dt[(:Eng, :Backend, :Alice)] = 95000.0
+println(haskey(dt, (:Eng,)))
+# true
 
-# Verify there is an entry key at depth 1
-println(haskey(dt, (:Eng,))) # true
-
-# Now delete the leaf...
 delete!(dt, (:Eng, :Backend, :Alice))
-
-# ...and the upward cascade automatically deletes the (:Eng,) entry
-println(haskey(dt, (:Eng,))) # false
+println(haskey(dt, (:Eng,)))
+# false
 ```
 
+The cleanup proceeds upward through all layers having the flag enabled, and stops at the first node which still has descendants.  Deleting or pruning a non-existing key has no effect.
 
 ### Cross-layer pruning
 
-Using `prune!` on a `DictTree` or `DictBranch` will delete the exact key match and recursively delete all associated elements across every deeper layer in the entire structure. If `clean_on_empty_branch = true` is configured for parent layers, pruning deep branches will also trigger upward cleanup of orphaned entries.
+`prune!` on a `DictTree` or `DictBranch` deletes the entry exactly matching the prefix, as well as all the entries below it, in every layer.  An empty prefix `()` removes everything.
 
 ```julia
-# This will delete the data at (:Engineering, :Software)
-# and the leaf data at (:Engineering, :Software, :Alice)
+dt = DictTree()
+dt[(:Engineering,)]                   = "Main Tech Hub"
+dt[(:Engineering, :Software)]         = "Backend Team"
+dt[(:Engineering, :Software, :Alice)] = 95000.0
+dt[(:Engineering, :Hardware)]         = "Hardware Team"
+
 prune!(dt, (:Engineering, :Software))
 
 println(haskey(dt, (:Engineering, :Software)))         # false
 println(haskey(dt, (:Engineering, :Software, :Alice))) # false
-println(haskey(dt, (:Engineering,)))                   # true (Parent is untouched, unless auto-cleaning triggered)
+println(haskey(dt, (:Engineering, :Hardware)))         # true
+println(haskey(dt, (:Engineering,)))                   # true (no clean_on_empty_branch here)
 ```
 
+## Performance
 
-### Value types of internal trees
+| Operation | `SDTree` / `SDBranch` |
+|-----------|-----------------------|
+| lookup, update | O(1), no allocations |
+| insertion | O(1) amortized, O(depth) internal updates |
+| `delete!` | O(1) amortized, O(depth) internal updates |
+| `prune!` | O(number of removed entries) |
+| `view` | O(1) |
+| `values_view` | O(1), or O(size of the branch) after deletions |
 
-By default, dynamically created trees use `Any` as their value type to allow for flexible, heterogeneous routing. If you want strict type safety, event-driven data hooks, and performance for a specific depth layer, you can manually inject a customized tree using `add_layer!`:
+The `test/check_performance.jl` script measures the average time of a lookup, update, insertion and deletion on an `SDTree`, on a view on half its entries (`SDBranch`), and on a `Dict` with the same content, using `Tuple{Bool, Int, Symbol, String}` keys.  Typical results:
 
-```julia
-dt = DictTree()
-
-# Allocate a depth 1 tree to only accept Symbol keys and String values
-# Note: this internal tree can have its own on_insert/on_update/on_delete hooks too!
-my_strict_tree = SDTree{Tuple{Symbol}, String}()
-add_layer!(dt, my_strict_tree)
-
-dt[(:Engineering,)] = "Main Tech Hub"
-# dt[(:Logistics,)] = 100.0 # This would now throw a MethodError!
-```
-
-
-
-## Check $O(1)$ scalability for static dict trees
-
-True $O(1)$ complexity means that elapsed time during operations remains constant regardless of the dataset's size. In the real world, however, it is difficult to empirically verify such a statement due to a number of optimizations occurring at different levels (compiler, operating system, CPU cache, etc.).
-
-The `test/check_performance.jl` script allows you to measure the time required to perform a lookup, an insertion, an update and a delete using `SDTree` and a view on it (`SDBranch`), as well as compare the corresponding times obtained with the standard `Dict`. It also measures the performance for pruning operations (only for `SDTree` and `SDBranch`).  The example covers the cases N=1,000 and N=1,000,000 datasets, using a composite `Tuple{Bool, Int, Symbol, String}` key:
 ```
 julia> include("test/check_performance.jl")
---- Generate small (N=1,000) and large (N=1,000,000) datasets, and corresponding views containing half the entries ---
-
 --- Test lookups ---
 Dict       (N=    1000), Avg. time:      0.085 μs, Allocated:    0 MB
 Dict       (N= 1000000), Avg. time:      0.137 μs, Allocated:    0 MB
@@ -503,19 +496,37 @@ SDTree     (N=    1000, deleted    500 entries), Avg. time:      1.016 μs, Allo
 SDTree     (N= 1000000, deleted 500000 entries), Avg. time:      2.757 μs, Allocated:   11 MB
 SDBranch   (N=     500, deleted    500 entries), Avg. time:      1.030 μs, Allocated:    0 MB
 SDBranch   (N=  500000, deleted 500000 entries), Avg. time:      2.817 μs, Allocated:    8 MB
-(pruning is not supported by Dict ...)
 ```
-Note: all the above timings are calculated per *single operation*, while the allocated memory is reported as total allocations.
+All times are averages *per single entry*: e.g. the prune of 500,000 entries above took about 1.4 s in total.  Allocated memory is the total for the whole test.
 
-As expected, the average elapsed times for lookups and updates on an `SDTree` scale similarly to a standard `Dict`, and show similar performance. Furthermore, these operations require exactly zero memory allocations.
+In summary:
+- lookups and updates show performance comparable to a `Dict` (within a factor of 2), and require no allocations;
+- insertions and deletions are roughly **10 times slower** than with a `Dict`, since several internal structures (one per depth level) must be updated;
+- `prune!` removes an entire branch in a single call, at a cost of a few microseconds per removed entry (no more than calling `delete!` on each entry, and with no need to find them first);
+- operating on a view (`SDBranch`) is as fast as operating on the root tree.
 
-Single insertions and deletions, on the other hand, provide slightly worse performance due to the need to populate or update internal structures. This additional load may partly be mitigated by invoking `sizehint!`.
+### Memory usage
 
-Branch pruning (`prune!`) is not supported by `Dict`, hence a direct comparison is not possible. However, the results show that it is able to perform massive batch deletions in just a few microseconds.
+Each entry is registered in one internal dictionary per depth level, and each distinct prefix has its own internal dictionary.  Hence an `SDTree` uses several times the memory of a `Dict` with the same content: in the benchmark above, where almost every entry has its own depth-3 prefix, about 3x the allocations during insertion, and ~7x the final memory footprint (`Base.summarysize`).  The overhead is smaller when many entries share the same prefixes.
 
-Finally, the performance on zero-allocation views (`SDBranch`) is nearly identical to operating directly on the root `SDTree`.
+## Limitations
 
+- The data structures are **not thread-safe**: concurrent modifications (or modifications concurrent with reads) require external locking.
+- Keys are not converted to the key type (see [Creating a tree](#creating-a-tree)).
+- The storage order of values is changed by deletions (the last value is moved into the vacant slot).  Iteration and `values_view` always follow insertion order.
+- Functions creating new dictionaries (`copy`, `merge`, `filter`, `empty`) return a `Dict`.
 
+## Version history
+
+- **Unreleased**:
+  - `view(tree, key)` on a non-existing complete key now throws a `KeyError` (previously it returned a stale `SDLeaf`);
+  - new `get` and `pop!` methods for all data structures;
+  - `prune!(tree, ())` removes all entries (previously it threw a `BoundsError`);
+  - a failed insertion (hook exception, or value not convertible) no longer corrupts the tree;
+  - a previously obtained `values_view` on a branch no longer exposes values of other entries after the branch is emptied;
+  - `clean_on_empty_branch` is no longer triggered by deleting or pruning non-existing keys;
+  - trees with non-comparable keys (e.g. `Symbol` and `Int` in an `Any` layer) can be displayed.
+- **v0.2.0** (breaking): the `keys(::SDTree, level::Int)` and `branches` methods have been removed. Inserting "metadata" with incomplete keys in an `SDTree` is no longer supported: use a `DictTree` instead.
 
 ## Disclaimer
 

@@ -13,7 +13,7 @@ end
     prune!(dt::DictTree, prefix::Tuple)
     prune!(db::DictBranch, prefix::Tuple)
 
-Deletes all leaves having `prefix` in their keys.
+Deletes all leaves having `prefix` in their keys.  An empty prefix `()` deletes all leaves.
 
 *Note:* This operation performs a batch deletion, meaning the `on_delete` hook will be triggered individually for every leaf that is pruned.
 """
@@ -25,6 +25,11 @@ function prune!(d::SDTree{KT}, prefix::T) where {KT <: Tuple, T <: Tuple}
         throw(ArgumentError("Path length ($M) exceeds tree depth ($N)."))
     elseif M == N
         return delete!(d, prefix)
+    elseif M == 0
+        # Empty prefix: remove all leaves (one at a time, so that `on_delete` is invoked for each of them)
+        for key in collect(keys(d))
+            delete!(d, key)
+        end
     else
         lookups_at_depth = _get_branch_dict(d, Val(M))
         t = get(lookups_at_depth, prefix, nothing)
@@ -63,11 +68,15 @@ prune!(v::SDBranch{KT, PT, ST}, path) where {KT <: Tuple, PT <: Tuple, ST <: Tup
 function prune!(dt::DictTree, prefix::Tuple)
     target_depth = length(prefix)
 
+    removed = false
     for (d, layer) in dt.layers
         if d >= target_depth
+            n = length(layer.tree)
             prune!(layer.tree, prefix)
+            removed |= (length(layer.tree) < n)
         end
     end
+    removed  ||  return dt  # nothing was pruned: do not trigger the upward cleanup
 
     # Upward cascade: automatically clean up orphaned parent metadata
     for d in (target_depth - 1):-1:0

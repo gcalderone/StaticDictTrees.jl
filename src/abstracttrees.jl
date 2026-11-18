@@ -4,6 +4,17 @@
 using AbstractTrees
 import AbstractTrees: children, printnode
 
+# Sort keys for display; fall back to sorting by their textual representation when the keys
+# are not mutually comparable (e.g. a mix of `Symbol` and `Int` in `Any`-typed layers).
+function _sorted_keys(keys)
+    try
+        return sort(keys)
+    catch e
+        e isa MethodError  ||  rethrow()
+        return sort(keys, by=repr)
+    end
+end
+
 """
     children(d::SDTree)
     children(v::SDBranch)
@@ -14,20 +25,20 @@ Returns an array of views (`SDBranch`, `SDLeaf`, or `DictBranch`) representing t
 """
 function children(d::SDTree{KT}) where {KT <: Tuple}
     if is_leaf_level(d)
-        return [SDLeaf(d, k) for k in sort(collect(keys(d.lookup)))]
+        return [SDLeaf(d, k) for k in _sorted_keys(collect(keys(d.lookup)))]
     else
-        return [SDBranch(d, p) for p in sort(collect(keys(d.branch_lookup[1])))]
+        return [SDBranch(d, p) for p in _sorted_keys(collect(keys(d.branch_lookup[1])))]
     end
 end
 
 function children(v::SDBranch{KT, PT}) where {KT <: Tuple, PT <: Tuple}
     M = fieldcount(PT)
     if is_leaf_level(v)
-        return [SDLeaf(v.root, (v.prefix..., k...)) for k in sort(collect(keys(v.lookup)))]
+        return [SDLeaf(v.root, (v.prefix..., k...)) for k in _sorted_keys(collect(keys(v.lookup)))]
     else
         next_level_dict = v.root.branch_lookup[M + 1]
         next_prefixes = [p for p in keys(next_level_dict) if p[1:M] == v.prefix]
-        return [SDBranch(v.root, p) for p in sort(next_prefixes)]
+        return [SDBranch(v.root, p) for p in _sorted_keys(next_prefixes)]
     end
 end
 
@@ -43,7 +54,7 @@ function children(dt::DictTree)
             for k in keys(layer.tree.branch_lookup[1]) push!(prefs, k) end
         end
     end
-    return [view(dt, p) for p in sort(collect(prefs))]
+    return [view(dt, p) for p in _sorted_keys(collect(prefs))]
 end
 
 function children(db::DictBranch)
@@ -68,7 +79,7 @@ function children(db::DictBranch)
         end
     end
 
-    return [view(db.dt, p) for p in sort(collect(prefs))]
+    return [view(db.dt, p) for p in _sorted_keys(collect(prefs))]
 end
 
 struct BranchAsRoot{T}

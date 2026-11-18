@@ -1,4 +1,4 @@
-using Revise, StaticDictTrees, Random, Printf
+using StaticDictTrees, Random, Printf
 
 # Build a tree of size N
 function build_tree(N)

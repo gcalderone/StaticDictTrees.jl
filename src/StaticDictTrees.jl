@@ -50,9 +50,9 @@ struct SDTree{KT <: Tuple, VT, HT} <: AbstractSDTree{KT, VT}
 Constructs an `SDTree` with keys of type `KT` and leaf values of type `VT`.
 
 **Keyword Arguments:**
-* `on_insert`: A function `f(tree::SDTree, key::KT, value) -> VT` invoked when a new key is added. It must return the value that will actually be stored. Defaults to an identity function.
-* `on_update`: A function `f(tree::SDTree, key::KT, old_value::VT, new_value) -> VT` invoked when an existing key is modified. It must return the updated value. Defaults to returning `new_value`.
-* `on_delete`: A function `f(tree::SDTree, key::KT, value::VT)` invoked right *before* a key-value pair is deleted from the tree. Defaults implementation does nothing.
+* `on_insert`: A function `f(key::KT, value) -> VT` invoked when a new key is added. It must return the value that will actually be stored. Defaults to an identity function.
+* `on_update`: A function `f(key::KT, old_value::VT, new_value) -> VT` invoked when an existing key is modified. It must return the updated value. Defaults to returning `new_value`.
+* `on_delete`: A function `f(key::KT, value::VT)` invoked right *before* a key-value pair is deleted from the tree. Defaults implementation does nothing.
 """
     function SDTree{KT, VT}(args...;
                             on_insert::Function=_default_insert,
@@ -95,6 +95,7 @@ end
 
 Constructs an `SDTree` with `KT` keys and `VT` values from an existing dictionary, a list of pairs, or separate arrays of keys and values.
 """
+SDTree() = throw(ArgumentError("Key and value types must be specified, e.g. `SDTree{Tuple{Symbol, Int}, Float64}()`."))
 SDTree(dict::AbstractDict{KT, VT}) where {KT <: Tuple, VT} = _populate_dict!(SDTree{KT, VT}(), dict)
 SDTree(p::Vararg{Pair{KT, VT}}) where {KT <: Tuple, VT}    = _populate_dict!(SDTree{KT, VT}(), p...)
 SDTree(keys::AbstractVector{KT}, values::AbstractVector{VT}) where {KT <: Tuple, VT} = _populate_dict!(SDTree{KT, VT}(), keys, values)
@@ -121,6 +122,9 @@ function empty!(d::SDTree)
         empty!(level_dict)
     end
     for level_dict in d.branch_viewids
+        for (k, v) in level_dict
+            empty!(v)  # invalidate cached indices shared with existing `values_view` objects
+        end
         empty!(level_dict)
     end
     return d
@@ -176,14 +180,17 @@ end
 
 Inserts or updates a value in the tree at the given `key`, or at the given `suffix` (used in conjunction with the branch prefix to produce the entire key).
 """
-function setindex!(d::SDTree{KT}, value, key::KT) where {KT <: Tuple}
+function setindex!(d::SDTree{KT, VT}, value, key::KT) where {KT <: Tuple, VT}
     idx = get(d.lookup, key, nothing)
     if !isnothing(idx)
         old_val = d.values[idx]
         d.values[idx] = d.hooks.on_update(key, old_val, value)
     else
+        # Run the hook and the conversion before touching any internal structure, so that
+        # an exception (e.g. a validation hook rejecting the value) leaves the tree unchanged.
+        new_val = convert(VT, d.hooks.on_insert(key, value))
         push!(d.keys, key)
-        push!(d.values, d.hooks.on_insert(key, value))
+        push!(d.values, new_val)
         I = length(d.values)
         d.lookup[key] = I
         _populate_branch_lookup!(d, key, I)
@@ -213,6 +220,7 @@ struct SDBranch{KT, PT, ST, VT, HT} <: AbstractSDTree{ST, VT}
         N = fieldcount(KT)
         M = fieldcount(PT)
         (M < N)  ||  throw(ArgumentError("Prefix length ($M) must be strictly less than key length ($N)."))
+        (M > 0)  ||  throw(ArgumentError("Prefix must not be empty: use the root tree instead (`view(tree, ())` returns the tree itself)."))
         if haskey(d.branch_lookup[M], prefix)
             ST = Tuple{fieldtypes(KT)[M+1:end]...}
             new{KT, PT, ST, VT, HT}(d, prefix, d.branch_lookup[M][prefix], d.branch_viewids[M][prefix])
@@ -473,10 +481,12 @@ end
     view(d::SDTree, prefix::Tuple)
     view(v::SDBranch, suffix::Tuple)
 
-Returns a view into a specific part of the tree.
+Returns a view into a specific part of the tree: an `SDBranch` if the key is incomplete, an `SDLeaf` if it is complete, or the object itself if the key is the empty tuple.
+Throws a `KeyError` if the path does not exist (use `haspath` to check beforehand).
 """
 function view(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple}
     if length(prefix) == fieldcount(KT)
+        haskey(d, prefix)  ||  throw(KeyError(prefix))
         return SDLeaf(d, prefix)
     elseif length(prefix) == 0
         return d
@@ -488,7 +498,9 @@ view(d::SDTree{KT}, prefix) where {KT <: Tuple} = view(d, (prefix,))
 
 function view(v::SDBranch{KT, PT, ST}, suffix::Tuple) where {KT, PT, ST}
     if length(suffix) == fieldcount(ST)
-        return SDLeaf(v.root, (v.prefix..., suffix...))
+        key = (v.prefix..., suffix...)
+        haskey(v.root, key)  ||  throw(KeyError(key))
+        return SDLeaf(v.root, key)
     elseif length(suffix) == 0
         return v
     else
@@ -559,6 +571,31 @@ include("prune.jl")
 include("abstracttrees.jl")
 include("show.jl")
 
+"""
+    get(d, key, default)
+    get(f::Function, d, key)
+
+Returns the value stored for `key`, or `default` (respectively `f()`) if the key is not present.
+Accepts `SDTree`, `SDBranch`, `SDLeaf`, `DictTree` and `DictBranch` objects.
+"""
+Base.get(d::Union{AbstractSDTree, DictTree, DictBranch}, key, default) = haskey(d, key) ? d[key] : default
+Base.get(f::Base.Callable, d::Union{AbstractSDTree, DictTree, DictBranch}, key) = haskey(d, key) ? d[key] : f()
+
+"""
+    pop!(d, key)
+    pop!(d, key, default)
+
+Deletes `key` and returns its associated value, or `default` if the key is not present (the version without `default` throws a `KeyError`).
+Accepts `SDTree`, `SDBranch`, `SDLeaf`, `DictTree` and `DictBranch` objects.
+"""
+function Base.pop!(d::Union{AbstractSDTree, DictTree, DictBranch}, key)
+    haskey(d, key)  ||  throw(KeyError(key))
+    value = d[key]
+    delete!(d, key)
+    return value
+end
+Base.pop!(d::Union{AbstractSDTree, DictTree, DictBranch}, key, default) = haskey(d, key) ? pop!(d, key) : default
+
 _populate_dict!(output::Union{SDTree, DictTree}) = output
 
 function _populate_dict!(output::Union{SDTree, DictTree}, input::AbstractDict)
@@ -572,7 +609,7 @@ function _populate_dict!(output::Union{SDTree, DictTree}, input::Vararg{Pair})
 end
 
 function _populate_dict!(output::Union{SDTree, DictTree}, keys::AbstractVector, values::AbstractVector)
-    @assert length(keys) == length(values)
+    (length(keys) == length(values))  ||  throw(DimensionMismatch("Number of keys ($(length(keys))) and values ($(length(values))) differ."))
     for i in 1:length(keys); output[keys[i]] = values[i]; end
     return output
 end

@@ -823,6 +823,76 @@ using StaticDictTrees
         # But the parent :Boson branch still has :Gauge, so it must survive!
         @test haspath(dt, (:Boson,)) == true
     end
+
+    @testset "19. Regression tests" begin
+        # A values_view held on a branch must not read foreign data after the branch is emptied
+        t = SDTree{Tuple{Symbol, Int}, Int}()
+        t[:y, 1] = 20; t[:x, 1] = 10; t[:x, 2] = 11
+        b = view(t, (:y,))
+        vv = values_view(b)
+        @test collect(vv) == [20]
+        delete!(t, (:y, 1))   # swap-with-last moves (:x, 2) into the vacant slot
+        @test is_stale(b)
+        @test isempty(vv)
+        @test isempty(values_view(b))
+
+        # ... same after empty!(::SDTree)
+        t[:y, 1] = 20
+        vv = values_view(view(t, (:y,)))
+        empty!(t)
+        t[:z, 1] = 99
+        @test isempty(vv)
+
+        # get / pop!
+        t = SDTree{Tuple{Symbol, Int}, Int}()
+        t[:a, 1] = 1; t[:a, 2] = 2
+        @test get(t, (:a, 1), 0) == 1
+        @test get(t, (:a, 9), 0) == 0
+        @test get(() -> -1, t, (:a, 9)) == -1
+        @test get(view(t, (:a,)), 2, 0) == 2
+        @test get(view(t, (:a,)), 9, 0) == 0
+        @test pop!(t, (:a, 1)) == 1
+        @test !haskey(t, (:a, 1))
+        @test pop!(t, (:a, 1), :none) == :none
+        @test_throws KeyError pop!(t, (:a, 1))
+        @test pop!(view(t, (:a,)), 2) == 2
+        @test isempty(t)
+
+        dt = DictTree()
+        dt[(:a,)] = 1; dt[(:a, :b)] = 2
+        @test get(dt, (:a,), 0) == 1
+        @test get(dt, (:zz,), 0) == 0
+        @test get(view(dt, (:a,)), (:b,), 0) == 2
+        @test pop!(dt, (:a, :b)) == 2
+        @test !haskey(dt, (:a, :b))
+
+        # clean_on_empty_branch must not fire when nothing was deleted or pruned
+        dt = DictTree()
+        add_layer!(dt, SDTree{Tuple{Symbol}, String}(); clean_on_empty_branch=true)
+        dt[(:Eng,)] = "hub"
+        delete!(dt, (:Eng, :missing, :x))
+        @test haskey(dt, (:Eng,))
+        prune!(dt, (:Eng, :missing))
+        @test haskey(dt, (:Eng,))
+        # ... while it still fires after an actual deletion
+        dt[(:Eng, :Backend, :Alice)] = 1.0
+        delete!(dt, (:Eng, :Backend, :Alice))
+        @test !haskey(dt, (:Eng,))
+        dt[(:Eng,)] = "hub"
+        dt[(:Eng, :Backend)] = "team"
+        prune!(dt, (:Eng, :Backend))
+        @test !haskey(dt, (:Eng,))
+
+        # Display must not fail on mutually non-comparable keys
+        dt = DictTree()
+        dt[(:a,)] = 1; dt[(1,)] = 2; dt[(1, :x)] = 3; dt[(1, 2)] = 4
+        @test occursin("(root)", sprint(show, MIME"text/plain"(), dt))
+        s = SDTree{Tuple{Any, Any}, Int}()
+        s[(:a, 1)] = 1; s[(1, :b)] = 2; s[(1, 2)] = 3
+        @test occursin("(root)", sprint(show, MIME"text/plain"(), s))
+    end
+
+    include("corner_cases.jl")
 end
 
 
@@ -919,3 +989,6 @@ end
         @test v1[:Software, :Eve] == 95
     end
 end
+
+
+include("readme.jl")

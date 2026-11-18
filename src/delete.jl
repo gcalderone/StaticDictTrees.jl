@@ -20,12 +20,13 @@ import Base: delete!
             if !isnothing(specific_bl)
                 delete!(specific_bl, suffix)
 
+                # Always invalidate the cached indices: views obtained via `values_view` share this vector,
+                # and must not keep pointing to slots that are now vacant or reassigned by the swap-with-last.
+                specific_bv = get(bv_at_depth, prefix, nothing)
+                isnothing(specific_bv) || empty!(specific_bv)
                 if isempty(specific_bl)
                     delete!(bl_at_depth, prefix)
                     delete!(bv_at_depth, prefix)
-                else
-                    specific_bv = get(bv_at_depth, prefix, nothing)
-                    isnothing(specific_bv) || empty!(specific_bv)
                 end
             end
 
@@ -104,9 +105,8 @@ delete!(v::SDLeaf, key::Tuple{}) = (delete!(v.root, v.key); v)
 # ------------------------------------------------------------------------------
 function Base.delete!(dt::DictTree, key::Tuple)
     target_depth = length(key)
-    if haslayer(dt, target_depth)
-        delete!(dt.layers[target_depth].tree, key)
-    end
+    haskey(dt, key)  ||  return dt  # nothing to delete: do not trigger the upward cleanup
+    delete!(dt.layers[target_depth].tree, key)
 
     for d in (target_depth - 1):-1:0
         if haslayer(dt, d)
