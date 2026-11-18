@@ -403,11 +403,17 @@ end
     @test !is_stale(b)
     @test collect(keys(b)) == [(2,)]
 
-    # a branch view accepts full root keys, also outside its own prefix
-    b[(:other, 1)] = 42
-    @test t[:other, 1] == 42
-    @test b[(:other, 1)] == 42
+    # a branch view only accepts suffixes, not full root keys (neither inside nor outside its prefix)
+    @test_throws ArgumentError b[(:a, 2)]
+    @test_throws ArgumentError b[(:other, 1)] = 42
+    @test_throws ArgumentError delete!(b, (:a, 2))
+    @test !haskey(b, (:a, 2))
+    @test get(b, (:a, 2), 0) == 0
+    @test !haskey(t, (:other, 1))
     @test length(b) == 1
+    # the whole tree remains reachable through `root`
+    root(b)[(:other, 1)] = 42
+    @test t[:other, 1] == 42
 
     # branch views on the same prefix share their state
     b1 = view(t, (:a,)); b2 = view(t, (:a,))

@@ -2,7 +2,7 @@
 
 **StaticDictTrees.jl** provides `SDTree`, a dictionary whose keys are fixed-length `Tuple`s, interpreted as paths in a tree.  Besides the usual `AbstractDict` interface, it allows you to:
 
-- take lightweight **views on branches**, i.e. on all the entries sharing a key prefix, and use them as dictionaries keyed by the remaining part of the key;
+- take **views on branches**, i.e. on all the entries sharing a common key prefix, and use them as dictionaries keyed by the remaining part of the key;
 - access the values of the whole tree, or of any branch, as an `AbstractVector` (`values_view`), with no need for nested loops or `collect`;
 - run **lifecycle hooks** on insertion, update and deletion;
 - delete entire branches at once (`prune!`).
@@ -12,8 +12,8 @@ The package also provides `DictTree`, a dictionary accepting tuple keys of *any*
 ## Installation
 
 ```julia
-# Hit `]` in the REPL to enter the Pkg prompt
-pkg> add StaticDictTrees
+using Pkg
+Pkg.add("StaticDictTrees")
 ```
 
 ## Quick start
@@ -86,30 +86,32 @@ SDTree{Tuple{Symbol, Symbol, Symbol}, Float64} with 17 entries:
 
 ## Data structures
 
+The following table provides a brief overview of the data structures provided by **StaticDictTrees.jl**:
+
 | Type | Description |
 |------|-------------|
-| `SDTree{KT, VT}` | Dictionary with keys of the fixed tuple type `KT` and values of type `VT`. The tree depth is the length of `KT`, and is fixed (hence "static"). |
+| `SDTree{KT, VT}` | Dictionary with keys of the fixed tuple type `KT` and values of type `VT`. The tree depth is the length of `KT`, and is fixed (hence the name "static"). |
 | `SDBranch` | View on the entries of an `SDTree` sharing a given prefix, created with `view(tree, prefix)`. It is an `AbstractDict` keyed by the remaining part of the key (suffix). |
-| `SDLeaf` | View on a single entry, created with `view(tree, full_key)`. It behaves as a dictionary with a single key: `()`. |
-| `DictTree` | Dictionary accepting tuple keys of any length. Each key length is handled by a separate `SDTree` (a *layer*). |
-| `DictBranch` | View on the entries of a `DictTree` sharing a given prefix, across all layers. |
+| `SDLeaf` | View on a single entry, created with `view(tree, full_key)`. It behaves as a dictionary with a single key: the empty tuple `()`. |
+| `DictTree` | Dictionary accepting tuple keys of any length. Each key length is handled internally by an `SDTree` of the proper depth (dubbed a *layer*). |
+| `DictBranch` | View on the entries of a `DictTree` sharing a given prefix across all layers. |
 
-## When to use it
+## Use cases
 
-`StaticDictTrees` is suitable when:
-- your data is naturally indexed by a composite key (e.g. `(detector, channel, run)`), and you often need to work on all the entries sharing a prefix (e.g. all channels of a detector);
-- you need something similar to a multi-dimensional sparse array, indexed by arbitrary values rather than integers;
+`StaticDictTrees` provides a suitable data structure in the following cases:
+- your data is naturally indexed by a composite key (e.g. `(country, city, district)`), and you often need to work on entries sharing a common prefix (e.g. all cities in a given country);
+- you need something similar to a multi-dimensional sparse array, indexed by arbitrary values rather than a tuple of integers;
+- you need to implement an in-memory database index based on a composite primary key with O(1) access time;
 - you need to process the values of a branch as a vector (e.g. `sum(values_view(branch))`);
-- you need lifecycle hooks (validation, accumulation, logging) on a dictionary;
 - you need a tree with heterogeneous depths (`DictTree`), with automatic creation and cleanup of intermediate nodes.
 
 Alternatives you may want to consider:
-- a plain `Dict` with tuple keys is faster and uses much less memory, but branch access requires a full scan;
+- a plain `Dict` with tuple keys is faster and uses less memory, but branch access requires a full scan;
 - nested `Dict`s (`Dict{Symbol, Dict{Symbol, ...}}`) provide cheap branch access, but no flat iteration, no flat value vector, and require manual creation/cleanup of the intermediate levels;
 - a `DataFrame` with `groupby` is better suited for columnar data, analytical queries and very large datasets;
 - [Dictionaries.jl](https://github.com/andyferris/Dictionaries.jl) provides insertion-ordered dictionaries with efficient vector-like value access, but no prefix views.
 
-## Creating a tree
+## Creating a static dictionary tree
 
 Create an empty tree by specifying the key and value types.  Any tuple type can be used as key:
 
@@ -125,11 +127,11 @@ tree[2, :local,  "cache"]   = 2.1
 tree[(2, :local, "hits")]   = 1e4
 ```
 
-A tree can also be created from an existing dictionary, from a list of pairs (as in the quick start), or from two vectors of keys and values:
+A tree can also be created from an existing dictionary or from a list of pairs (as in the quick start):
 
 ```julia
 copy_of_tree = SDTree(tree)
-tree2 = SDTree([(1, :a), (2, :b)], [10, 20])
+tree2 = SDTree((1, :a) => 10, (2, :b) => 20)
 ```
 
 Keys must have exactly the declared type: unlike `Dict`, no conversion is performed, and keys of a different type (e.g. an `Int32` where an `Int` is expected) raise an `ArgumentError` with `getindex`, `setindex!` and `delete!`, while `haskey` and `get` simply report the key as missing.  Values are converted to the value type as usual.
@@ -163,13 +165,13 @@ quarks   = view(fermions, (:Quark,))
 println(quarks[:top])
 # 172760.0
 
-# A complete key returns an `SDLeaf`, a view on a single entry, accessed with the empty tuple
+# A complete key returns an `SDLeaf`, a view on a single entry, accessed with the empty tuple `()`
 top = view(part_mass, (:Fermion, :Quark, :top))
 println(top[()])
 # 172760.0
 ```
 
-A branch view also accepts the full keys of the root tree; note that such keys are *not* restricted to the branch prefix: `quarks[(:Boson, :Gauge, :W)]` returns the mass of the W boson.
+Branch keys are always relative to the branch prefix: passing any other key (e.g. a full root key) to `getindex`, `setindex!` or `delete!` raises an `ArgumentError`, while `haskey` and `get` report it as missing.  To reach other parts of the tree from a branch, use `root(branch)`, which returns the parent `SDTree`.
 
 Creating a view on a non-existing path raises a `KeyError`.  To check whether a path exists, use `haspath()`:
 ```julia
@@ -181,7 +183,7 @@ println(haspath(part_mass, (:Fermion, :Gluon)))
 
 ### Values as vectors (`values_view`)
 
-All the values of an `SDTree` are stored in a single `Vector`.  `values_view` returns a `SubArray` on that vector, containing the values of the tree or branch in insertion order:
+All the values of an `SDTree` are internally stored in a single `Vector`.  `values_view` returns a `SubArray` on that vector, containing the values of the tree or branch in insertion order:
 
 ```julia
 quark_masses = values_view(view(part_mass, (:Fermion, :Quark)))
@@ -195,12 +197,12 @@ println(part_mass[:Fermion, :Quark, :top])
 ```
 
 Note that:
-- the returned `SubArray` accesses the underlying dense `Vector` through a vector of positions, hence it is not itself a contiguous block (e.g. it can't be passed to functions requiring a `StridedArray`);
-- insertions and updates are reflected in a previously obtained `values_view`. A deletion, however, invalidates it (it becomes empty): call `values_view` again to obtain an updated one. After deletions, the first `values_view` call rebuilds the list of positions, which costs O(n) in the size of the tree or branch.
+- the returned `SubArray` accesses the underlying dense `Vector` through a vector of positions;
+- deletions invalidate a previously obtained `values_view`: invoke it again to obtain an updated one.
 
 ### Stale views
 
-A view holds a direct reference to the internal structures of its parent tree.  When the data it refers to is removed, the view becomes **stale**: it behaves as an empty collection (`length` is 0, iteration yields nothing, `values_view` is empty), and `is_stale()` returns `true`:
+A view holds a direct reference to the internal structures of its parent tree.  When the data it refers to is removed, the view becomes **stale** and behaves as an empty collection (`length` is 0, iteration yields nothing, `values_view` is empty), and `is_stale()` returns `true`:
 
 ```julia
 pm = SDTree(part_mass)   # a copy, to keep `part_mass` unchanged
@@ -218,10 +220,7 @@ println(is_stale(v), "  ", is_stale(view(pm, (:Boson, :Scalar))))
 # true  false
 ```
 
-Precisely:
-- an `SDBranch` becomes stale when all the entries of its branch are removed (deleting only some of them keeps it valid), and stays stale afterwards;
-- an `SDLeaf` is stale as long as its key is missing, i.e. it becomes valid again if the key is re-inserted;
-- mutating operations on a stale view (`setindex!`, `delete!`, `prune!`) are still forwarded to the root tree using the view prefix, although a stale branch view does not see their results.
+A stale `SDBranch` never becomes valid again, even if entries with its prefix are re-inserted.  An `SDLeaf`, instead, is stale only as long as its key is missing, i.e. it becomes valid again if the key is re-inserted.
 
 ## Lifecycle hooks
 
@@ -502,7 +501,7 @@ All times are averages *per single entry*: e.g. the prune of 500,000 entries abo
 In summary:
 - lookups and updates show performance comparable to a `Dict` (within a factor of 2), and require no allocations;
 - insertions and deletions are roughly **10 times slower** than with a `Dict`, since several internal structures (one per depth level) must be updated;
-- `prune!` removes an entire branch in a single call, at a cost of a few microseconds per removed entry (no more than calling `delete!` on each entry, and with no need to find them first);
+- `prune!` removes an entire branch in a single call, deleting each entry in turn (cost proportional to the number of removed entries);
 - operating on a view (`SDBranch`) is as fast as operating on the root tree.
 
 ### Memory usage
@@ -511,23 +510,18 @@ Each entry is registered in one internal dictionary per depth level, and each di
 
 ## Limitations
 
-- The data structures are **not thread-safe**: concurrent modifications (or modifications concurrent with reads) require external locking.
-- Keys are not converted to the key type (see [Creating a tree](#creating-a-tree)).
-- The storage order of values is changed by deletions (the last value is moved into the vacant slot).  Iteration and `values_view` always follow insertion order.
-- Functions creating new dictionaries (`copy`, `merge`, `filter`, `empty`) return a `Dict`.
+The data structures are **not thread-safe**: concurrent modifications (or modifications concurrent with reads) require external locking.
 
-## Version history
-
-- **Unreleased**:
-  - `view(tree, key)` on a non-existing complete key now throws a `KeyError` (previously it returned a stale `SDLeaf`);
-  - new `get` and `pop!` methods for all data structures;
-  - `prune!(tree, ())` removes all entries (previously it threw a `BoundsError`);
-  - a failed insertion (hook exception, or value not convertible) no longer corrupts the tree;
-  - a previously obtained `values_view` on a branch no longer exposes values of other entries after the branch is emptied;
-  - `clean_on_empty_branch` is no longer triggered by deleting or pruning non-existing keys;
-  - trees with non-comparable keys (e.g. `Symbol` and `Int` in an `Any` layer) can be displayed.
-- **v0.2.0** (breaking): the `keys(::SDTree, level::Int)` and `branches` methods have been removed. Inserting "metadata" with incomplete keys in an `SDTree` is no longer supported: use a `DictTree` instead.
+## Changes in v0.4.0
+- **breaking** `view(tree, key)` on a non-existing complete key now throws a `KeyError` (previously it returned a stale `SDLeaf`);
+- **breaking** `getindex` and `setindex!` on an `SDBranch` no longer accept full root keys (which also allowed access outside the branch): use `root(branch)[key]` instead;
+- new `get` and `pop!` methods for all data structures;
+- `prune!(tree, ())` removes all entries (previously it threw a `BoundsError`);
+- a failed insertion (hook exception, or value not convertible) no longer corrupts the tree;
+- a previously obtained `values_view` on a branch no longer exposes values of other entries after the branch is emptied;
+- `clean_on_empty_branch` is no longer triggered by deleting or pruning non-existing keys;
+- trees with non-comparable keys (e.g. `Symbol` and `Int` in an `Any` layer) can be displayed.
 
 ## Disclaimer
 
-This package was developed with the assistance of AI (Gemini), but all code has been manually reviewed and tested for type stability and correctness by the author.
+This package was developed with the assistance of AI (Gemini and Claude), but all code has been manually reviewed and tested for type stability and correctness by the author.

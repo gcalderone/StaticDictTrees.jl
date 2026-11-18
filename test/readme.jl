@@ -3,7 +3,8 @@
 @testset "README examples" begin
     readme = joinpath(@__DIR__, "..", "README.md")
     blocks = [m.captures[1] for m in eachmatch(r"```julia\n(.*?)```"s, read(readme, String))]
-    blocks = filter(b -> !occursin("pkg>", b) && !occursin("julia>", b), blocks)  # skip REPL transcripts
+    # skip REPL transcripts and installation instructions
+    blocks = filter(b -> !occursin("pkg>", b) && !occursin("julia>", b) && !occursin("Pkg.add", b), blocks)
     @test length(blocks) > 10
     mod = Module(:ReadmeExamples)
     Core.eval(mod, :(using StaticDictTrees))
