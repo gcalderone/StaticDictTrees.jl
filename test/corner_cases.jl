@@ -224,7 +224,7 @@ end
     # depth-0 tree
     t0 = SDTree{Tuple{}, Int}()
     @test depth(t0) == 0
-    @test is_leaf_level(t0)
+    @test !is_leaf_level(t0)
     t0[()] = 5
     @test t0[()] == 5
     @test length(t0) == 1
@@ -345,8 +345,8 @@ end
     @test length(l) == 1
     @test collect(values_view(l)) == [1]
     @test StaticDictTrees.children(l) == ()
-    @test depth(l) == 2
-    @test is_leaf_level(l)
+    @test depth(l) == 0
+    @test !is_leaf_level(l)
     @test root(l) === t
     l[()] = 7
     @test t[:a, 1] == 7
@@ -452,6 +452,26 @@ end
     t[:a, 1, "x"] = 1
     @test SDBranch(view(t, (:a,)), (1,)).prefix == (:a, 1)
     @test SDLeaf(view(t, (:a,)), (1, "x"))[()] == 1
+
+    # depth: number of key elements still needed to reach a leaf
+    @test depth(t) == 3
+    @test depth(view(t, (:a,))) == 2
+    @test depth(view(t, (:a, 1))) == 1
+    @test depth(view(t, (:a, 1, "x"))) == 0
+    @test [is_leaf_level(x) for x in (t, view(t, (:a,)), view(t, (:a, 1)), view(t, (:a, 1, "x")))] == [false, false, true, false]
+    # the keys accepted by a branch have exactly `depth` elements
+    b = view(t, (:a,))
+    @test all(length(k) == depth(b) for k in keys(b))
+
+    # prefix
+    @test prefix(view(t, (:a,))) == (:a,)
+    @test prefix(view(t, (:a, 1))) == (:a, 1)
+    @test prefix(view(view(t, (:a,)), (1,))) == (:a, 1)
+    @test all(root(b)[(prefix(b)..., k...)] == v for (k, v) in b)
+    dt = DictTree()
+    dt[(:a, :b)] = 1
+    @test prefix(view(dt, (:a,))) == (:a,)
+    @test prefix(view(view(dt, (:a,)), (:b,))) == (:a, :b)
 end
 
 

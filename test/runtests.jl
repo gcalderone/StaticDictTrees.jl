@@ -35,7 +35,7 @@ using StaticDictTrees
 
         t0 = SDTree{Tuple{}, Int}()
         @test depth(t0) == 0
-        @test is_leaf_level(t0)
+        @test !is_leaf_level(t0)
         t0[()] = 42
         @test t0[()] == 42
         @test length(t0) == 1
@@ -50,14 +50,14 @@ using StaticDictTrees
         lf  = SDLeaf(dt, (1, :server, "latency"))
 
         @test depth(dt)  == 3
-        @test depth(br1) == 1
-        @test depth(br2) == 2
-        @test depth(lf)  == 3
+        @test depth(br1) == 2   # number of key elements still needed to reach a leaf
+        @test depth(br2) == 1
+        @test depth(lf)  == 0
 
         @test !is_leaf_level(dt)
         @test !is_leaf_level(br1)
         @test is_leaf_level(br2)
-        @test is_leaf_level(lf)
+        @test !is_leaf_level(lf)
 
         @test parent(dt) === nothing
         @test parent(br1) === dt
@@ -206,7 +206,7 @@ using StaticDictTrees
         lf_obj = SDLeaf(br_lf, (:Y,))
         @test lf_obj[()] == 1
         delete!(lf_obj, ())
-        @test is_leaf_level(lf_obj)
+        @test !is_leaf_level(lf_obj)
     end
 
     @testset "6. Iteration and Collection" begin

@@ -24,7 +24,7 @@ end
 Returns an array of views (`SDBranch`, `SDLeaf`, or `DictBranch`) representing the immediate structural children of the given tree or branch.
 """
 function children(d::SDTree{KT}) where {KT <: Tuple}
-    if is_leaf_level(d)
+    if depth(d) <= 1  # the only child of a depth-0 tree is the leaf with key ()
         return [SDLeaf(d, k) for k in _sorted_keys(collect(keys(d.lookup)))]
     else
         return [SDBranch(d, p) for p in _sorted_keys(collect(keys(d.branch_lookup[1])))]

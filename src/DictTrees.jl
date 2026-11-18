@@ -182,9 +182,10 @@ get_layer(db::DictBranch, label::Symbol) = view(get_layer(db.dt, label), db.pref
 """
     haslayer(dt::DictTree, depth::Int)
     haslayer(dt::DictTree, label::Symbol)
+    haslayer(db::DictBranch, depth::Int)
     haslayer(db::DictBranch, label::Symbol)
 
-Returns `true` if the shell currently manages a tree or branch at the requested `depth`, or which is identified by `label`.
+Returns `true` if the `DictTree` has a layer (i.e. an `SDTree`) at the requested `depth`, or identified by `label`.  For a `DictBranch`, it also requires that the layer contains the branch prefix.
 """
 haslayer(dt::DictTree, depth::Int) = haskey(dt.layers, depth)
 haslayer(dt::DictTree, label::Symbol) = haskey(dt.labels, label)  &&  haskey(dt.layers, dt.labels[label])
@@ -200,6 +201,8 @@ Returns the dictionary mapping `Symbol` labels to their corresponding tree depth
 getlabels(dt::DictTree) = dt.labels
 getlabels(db::DictBranch) = db.dt.labels
 
+prefix(db::DictBranch) = db.prefix
+
 
 # ------------------------------------------------------------------------------
 # Tree Injection / Initialization
@@ -210,14 +213,14 @@ getlabels(db::DictBranch) = db.dt.labels
               on_new_branch::Union{Nothing, Function}=nothing,
               clean_on_empty_branch::Bool=false)
 
-Manually injects an existing `SDTree` into the `DictTree` shell.
+Adds an existing `SDTree` to the `DictTree`, as the layer handling keys of length `depth(tree)`.
 
 **Keyword Arguments:**
-* `label`: Assigns a semantic label to the specific tree depth, allowing you to retrieve the tree later using `get_layer(dt, label)`.
-* `on_new_branch`: A function mapping a partial tuple key (`KT`) to a value (`VT`). It is automatically invoked to populate this layer whenever a user sets a value at a deeper level and the intermediate branch doesn't exist.
-* `clean_on_empty_branch`: If set to `true`, deleting or pruning all the deeper children of a node will automatically trigger the deletion of this layer's corresponding entries, keeping the tree free of orphaned branches.
+* `label`: Assigns a label to the layer depth, allowing you to retrieve the tree later using `get_layer(dt, label)`.  If the label is already in use, it is silently moved to the new layer.
+* `on_new_branch`: A function returning the default value for a node of this layer.  It is invoked whenever a value is inserted at a deeper level and the corresponding node in this layer does not exist yet (existing values are never overwritten).  The function receives the node key: a scalar for a depth-1 layer, `()` for a depth-0 layer, and a tuple otherwise.
+* `clean_on_empty_branch`: If set to `true`, a node of this layer is automatically deleted when an actual deletion (`delete!` or `prune!`) leaves it with no descendants in any deeper layer.
 
-Throws an `ArgumentError` if the shell already manages a tree at that specific depth.
+Throws an `ArgumentError` if the `DictTree` already has a layer at that depth.
 """
 function add_layer!(dt::DictTree, tree::SDTree;
                    label::Union{Nothing, Symbol}=nothing,

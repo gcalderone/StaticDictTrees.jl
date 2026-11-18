@@ -171,7 +171,7 @@ println(top[()])
 # 172760.0
 ```
 
-Branch keys are always relative to the branch prefix: passing any other key (e.g. a full root key) to `getindex`, `setindex!` or `delete!` raises an `ArgumentError`, while `haskey` and `get` report it as missing.  To reach other parts of the tree from a branch, use `root(branch)`, which returns the parent `SDTree`.
+Branch keys are always relative to the branch prefix: passing any other key (e.g. a full root key) to `getindex`, `setindex!` or `delete!` raises an `ArgumentError`, while `haskey` and `get` report it as missing.  To reach other parts of the tree from a branch, use `root(branch)`, which returns the parent `SDTree`: the branch key `k` corresponds to the full key `(prefix(branch)..., k...)` in the root tree.
 
 Creating a view on a non-existing path raises a `KeyError`.  To check whether a path exists, use `haspath()`:
 ```julia
@@ -298,6 +298,7 @@ println(is_leaf_level(view(pm, (:Fermion, :Quark))))     # true
 quarks = view(pm, (:Fermion, :Quark))
 fermions = parent(quarks)                # an SDBranch with prefix (:Fermion,)
 println(root(quarks) === pm)             # true
+println(prefix(quarks))                  # (:Fermion, :Quark)
 
 # Remove a single entry
 delete!(pm, (:Boson, :Scalar, :higgs))
@@ -515,6 +516,8 @@ The data structures are **not thread-safe**: concurrent modifications (or modifi
 ## Changes in v0.4.0
 - **breaking** `view(tree, key)` on a non-existing complete key now throws a `KeyError` (previously it returned a stale `SDLeaf`);
 - **breaking** `getindex` and `setindex!` on an `SDBranch` no longer accept full root keys (which also allowed access outside the branch): use `root(branch)[key]` instead;
+- **breaking** `depth` now returns the number of key elements still needed to reach a leaf: the suffix length for an `SDBranch` (previously the prefix length) and 0 for an `SDLeaf` (previously the full key length).  Consequently, `is_leaf_level` (now equivalent to `depth(x) == 1`) returns `false` for an `SDLeaf` and for a depth-0 tree;
+- new `prefix` function returning the key prefix of an `SDBranch` or `DictBranch`;
 - new `get` and `pop!` methods for all data structures;
 - `prune!(tree, ())` removes all entries (previously it threw a `BoundsError`);
 - a failed insertion (hook exception, or value not convertible) no longer corrupts the tree;

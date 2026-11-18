@@ -3,7 +3,7 @@ module StaticDictTrees
 using DataStructures
 import Base: empty!, length, iterate, getindex, setindex!, haskey, keys, values, parent, show, view, sizehint!
 
-export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, values_view, haspath
+export AbstractSDTree, SDTree, SDBranch, SDLeaf, prune!, is_leaf_level, depth, is_stale, root, prefix, values_view, haspath
 
 
 _default_insert(key, newval) = newval
@@ -52,7 +52,7 @@ Constructs an `SDTree` with keys of type `KT` and leaf values of type `VT`.
 **Keyword Arguments:**
 * `on_insert`: A function `f(key::KT, value) -> VT` invoked when a new key is added. It must return the value that will actually be stored. Defaults to an identity function.
 * `on_update`: A function `f(key::KT, old_value::VT, new_value) -> VT` invoked when an existing key is modified. It must return the updated value. Defaults to returning `new_value`.
-* `on_delete`: A function `f(key::KT, value::VT)` invoked right *before* a key-value pair is deleted from the tree. Defaults implementation does nothing.
+* `on_delete`: A function `f(key::KT, value::VT)` invoked right *before* a key-value pair is deleted from the tree. The default implementation does nothing.
 """
     function SDTree{KT, VT}(args...;
                             on_insert::Function=_default_insert,
@@ -106,9 +106,9 @@ SDTree(keys::AbstractVector{KT}, values::AbstractVector{VT}) where {KT <: Tuple,
     empty!(l::SDLeaf)
 
 Clears all keys, values, and structures from the tree or view.
-- For an `SDTree`, it completely resets the tree to an empty state.
-- For an `SDBranch`, it recursively deletes all keys accessible from the branch prefix.
-- For an `SDLeaf`, it removes just the leaf.
+- For an `SDTree`, it completely resets the tree to an empty state. The `on_delete` hook is **not** invoked.
+- For an `SDBranch`, it deletes all the entries sharing the branch prefix, invoking `on_delete` for each of them.
+- For an `SDLeaf`, it removes just the leaf, invoking `on_delete`.
 """
 function empty!(d::SDTree)
     empty!(d.keys)
@@ -207,8 +207,13 @@ setindex!(d::SDTree{KT}, value, key)    where {KT <: Tuple} = setindex!(d, value
 # ------------------------------------------------------------------------------
 """
     SDBranch(d::SDTree{KT, VT}, prefix::PT) where {KT, VT, PT <: Tuple}
+    SDBranch(v::SDBranch, suffix::Tuple)
 
-Creates a type-stable view into the specific branch of a `SDTree` identified by an incomplete key (`prefix`).
+Creates a view on the branch of an `SDTree` identified by an incomplete key (`prefix`), i.e. on all the entries whose key starts with `prefix`.  The second form creates a view on a sub-branch of an existing branch, identified by the concatenation of the branch prefix and `suffix`.
+
+The returned object is concretely typed, hence all operations on it are type-stable (its construction, however, involves a runtime dispatch).  It is usually created by means of `view`.
+
+Throws a `KeyError` if the branch does not exist, and an `ArgumentError` if the prefix is empty or not shorter than the tree keys.
 """
 struct SDBranch{KT, PT, ST, VT, HT} <: AbstractSDTree{ST, VT}
     root::SDTree{KT, VT, HT}
@@ -321,11 +326,11 @@ values(v::SDLeaf{KT, VT}) where {KT, VT} = is_stale(v) ? VT[] : [v.root[v.key]]
     values_view(v::SDBranch)
     values_view(l::SDLeaf)
 
-Returns a `SubArray` view into the tree or branch's values preserving the original chronological insertion order.
+Returns a `SubArray` on the internal vector of values, containing the values of the tree, branch or leaf in insertion order.
 
-Unlike `values()`, which returns a standard lazy iterator, `values_view()` returns a view on a vector.  You can use this view for lookups, updates and insertions. The changes will be reflected in the parent tree content.
+Unlike `values()`, which returns a lazy iterator, `values_view()` returns an `AbstractVector`, which can be used to read and modify the existing values (modifications are reflected in the parent tree).  Entries can not be added or removed through it.
 
-*Note:* Attempting to read from a `values_view` of an `SDBranch` or `SDLeaf` that has become stale (due to the deletion of its parent branch) is unsafe. Use `is_stale()` to verify validity.
+Insertions in the tree are reflected in a previously obtained `values_view`, while a deletion invalidates it (it becomes empty): call `values_view` again to obtain an updated one.  The `values_view` of a stale view is empty.
 """
 function values_view(d::SDTree)
     if isempty(d.viewid)  ||  (length(d.viewid) != length(d.values))
@@ -372,20 +377,18 @@ haskey(v::SDLeaf, key::Tuple)   = false
     depth(v::SDBranch)
     depth(l::SDLeaf)
 
-Returns the length of the key tuple needed to uniquely identify a leaf.
+Returns the number of key elements still needed to reach a leaf, i.e. the length of the keys accepted by the object: the key length for an `SDTree`, the suffix length for an `SDBranch`, and 0 for an `SDLeaf`.
 """
-depth(::SDTree{KT})       where {KT}     = fieldcount(KT)
-depth(::SDBranch{KT, PT}) where {KT, PT} = fieldcount(PT)
-depth(::SDLeaf{KT})       where {KT}     = fieldcount(KT)
+depth(::SDTree{KT})               where {KT}         = fieldcount(KT)
+depth(::SDBranch{KT, PT, ST})     where {KT, PT, ST} = fieldcount(ST)
+depth(::SDLeaf)                                      = 0
 
 """
     is_leaf_level(d::AbstractSDTree)
 
-Returns `true` if the tree or branch is exactly one level above the leaves (i.e., its direct children are `SDLeaf` objects). Always returns `true` for an `SDLeaf`.
+Returns `true` if the tree or branch is exactly one level above the leaves, i.e. if `depth(d) == 1` (its direct children are `SDLeaf` objects, and it can be indexed by a scalar).  Returns `false` for an `SDLeaf` and for a tree with depth 0.
 """
-is_leaf_level(::SDTree{KT})           where {KT <: Tuple}         = fieldcount(KT) <= 1
-is_leaf_level(::SDBranch{KT, PT, ST}) where {KT, PT, ST <: Tuple} = fieldcount(ST) == 1
-is_leaf_level(::SDLeaf) = true
+is_leaf_level(d::AbstractSDTree) = depth(d) == 1
 
 """
     is_stale(d::AbstractSDTree)
@@ -412,9 +415,24 @@ function parent(v::SDLeaf{KT}) where {KT}
     return SDBranch(v.root, v.key[1:(end-1)])
 end
 
+"""
+    root(d::SDTree)
+    root(v::SDBranch)
+    root(l::SDLeaf)
+
+Returns the root `SDTree` of a branch or leaf view (or the tree itself).  Use it to reach other parts of the tree from a view, e.g. `root(branch)[full_key]`.
+"""
 root(d::SDTree) = d
 root(v::SDBranch) = v.root
 root(v::SDLeaf) = v.root
+
+"""
+    prefix(v::SDBranch)
+    prefix(db::DictBranch)
+
+Returns the key prefix identifying the branch, i.e. the tuple which, concatenated with the branch keys, gives the full keys in the root tree.
+"""
+prefix(v::SDBranch) = v.prefix
 
 """
     iterate(d::AbstractSDTree, [state])
@@ -461,9 +479,9 @@ getindex(v::SDLeaf, key::Tuple{}) = v.root[v.key]
 """
     sizehint!(d::SDTree, n::Integer)
 
-Suggest that the tree `d` reserve memory capacity for at least `n` elements.
+Suggest that the tree `d` reserve memory capacity for at least `n` entries.
 
-Calling `sizehint!` before performing large, bulk insertions pre-allocates the necessary memory blocks for the internal data structures, improving insertion performance.
+Calling `sizehint!` before large bulk insertions pre-allocates the main internal structures (the vectors of keys and values, and the key lookup dictionary), reducing reallocations.  The internal dictionaries of the individual branches are not pre-allocated.
 """
 function sizehint!(d::SDTree, n::Integer)
     sizehint!(d.keys, n)
@@ -480,7 +498,7 @@ end
     view(v::SDBranch, suffix::Tuple)
 
 Returns a view into a specific part of the tree: an `SDBranch` if the key is incomplete, an `SDLeaf` if it is complete, or the object itself if the key is the empty tuple.
-Throws a `KeyError` if the path does not exist (use `haspath` to check beforehand).
+Throws a `KeyError` if the path does not exist (use `haspath` to check beforehand), and an `ArgumentError` if the key is longer than the tree keys.
 """
 function view(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple}
     if length(prefix) == fieldcount(KT)
@@ -510,7 +528,7 @@ view(v::SDBranch{KT, PT, ST}, suffix) where {KT, PT, ST} = view(v, (suffix,))
 """
     haspath(d::SDTree, prefix::Tuple)
 
-Returns `true` if the given incomplete key (`prefix`) represents a valid, populated branch in the tree.
+Returns `true` if the given key `prefix` identifies an existing path in the tree: a populated branch if the key is incomplete, or an existing entry if it is complete (in which case it is equivalent to `haskey`).  Returns `true` for the empty tuple `()` (the root), and `false` for keys longer than the tree keys.
 """
 function haspath(d::SDTree{KT}, prefix::Tuple) where {KT <: Tuple}
     N = fieldcount(KT)
@@ -524,7 +542,7 @@ end
 """
     haspath(v::SDBranch, suffix::Tuple)
 
-Returns `true` if the given `suffix` creates a valid, populated sub-branch within the current view.
+Returns `true` if the given `suffix`, appended to the branch prefix, identifies an existing path in the tree (see `haspath(::SDTree, ::Tuple)`).
 """
 haspath(v::SDBranch, suffix::Tuple) = haspath(v.root, (v.prefix..., suffix...))
 

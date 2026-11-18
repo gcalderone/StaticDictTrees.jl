@@ -13,9 +13,11 @@ end
     prune!(dt::DictTree, prefix::Tuple)
     prune!(db::DictBranch, prefix::Tuple)
 
-Deletes all leaves having `prefix` in their keys.  An empty prefix `()` deletes all leaves.
+Deletes all the entries whose key starts with `prefix`.  An empty prefix `()` deletes all entries.  For views (`SDBranch` and `DictBranch`), `prefix` is relative to the branch prefix.
 
-*Note:* This operation performs a batch deletion, meaning the `on_delete` hook will be triggered individually for every leaf that is pruned.
+On a `DictTree` (or `DictBranch`), the entry exactly matching `prefix` is deleted as well, together with all entries below it in every layer; afterwards, the parent nodes in layers with `clean_on_empty_branch` enabled are removed if they are left with no descendants.  Pruning a non-existing path has no effect.
+
+*Note:* entries are deleted one at a time, hence the `on_delete` hook is invoked for each of them.  For `SDTree` and `SDBranch`, throws an `ArgumentError` if `prefix` is longer than the keys.
 """
 function prune!(d::SDTree{KT}, prefix::T) where {KT <: Tuple, T <: Tuple}
     M = fieldcount(T)
